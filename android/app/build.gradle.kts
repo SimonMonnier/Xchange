@@ -8,11 +8,14 @@ plugins {
 android {
     namespace = "com.example.xchange"
     compileSdk = flutter.compileSdkVersion
-    ndkVersion = flutter.ndkVersion
+    // WiFi Aware notifications require a newer NDK than Flutter's default
+    ndkVersion = "27.0.12077973"
 
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_11
         targetCompatibility = JavaVersion.VERSION_11
+        // Required for flutter_local_notifications
+        isCoreLibraryDesugaringEnabled = true
     }
 
     kotlinOptions {
@@ -41,4 +44,9 @@ android {
 
 flutter {
     source = "../.."
+}
+
+dependencies {
+    // Needed when core library desugaring is enabled
+    coreLibraryDesugaring("com.android.tools:desugar_jdk_libs:2.0.4")
 }
