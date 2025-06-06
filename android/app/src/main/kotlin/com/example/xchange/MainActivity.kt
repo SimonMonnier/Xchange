@@ -40,11 +40,9 @@ class MainActivity : FlutterActivity() {
         if (wifiAwareManager == null) {
             Log.e("MainActivity", "Wi-Fi Aware not supported on this device")
         }
-
         bluetoothAdapter = BluetoothAdapter.getDefaultAdapter()
         bleAdvertiser = bluetoothAdapter?.bluetoothLeAdvertiser
         bleScanner = bluetoothAdapter?.bluetoothLeScanner
-
         MethodChannel(flutterEngine.dartExecutor.binaryMessenger, channel).setMethodCallHandler { call, result ->
             when (call.method) {
                 "startPublishing" -> {
@@ -86,6 +84,17 @@ class MainActivity : FlutterActivity() {
             if (bleAdvertiser == null) {
                 Log.e("MainActivity", "Bluetooth LE advertising not supported")
                 return
+        if (wifiAwareManager == null) {
+            Log.e("MainActivity", "Wi-Fi Aware not supported; cannot publish.")
+            return
+        }
+        wifiAwareManager?.attach(object : AttachCallback() {
+            override fun onAttached(session: WifiAwareSession) {
+                val config = PublishConfig.Builder()
+                    .setServiceName("aware_msg")
+                    .setServiceSpecificInfo(message.toByteArray())
+                    .build()
+                session.publish(config, object : DiscoverySessionCallback() {}, null)
             }
             val settings = AdvertiseSettings.Builder()
                 .setAdvertiseMode(AdvertiseSettings.ADVERTISE_MODE_LOW_LATENCY)
@@ -127,6 +136,21 @@ class MainActivity : FlutterActivity() {
             if (bleScanner == null) {
                 Log.e("MainActivity", "Bluetooth LE scanning not supported")
                 return
+        if (wifiAwareManager == null) {
+            Log.e("MainActivity", "Wi-Fi Aware not supported; cannot subscribe.")
+            return
+        }
+        wifiAwareManager?.attach(object : AttachCallback() {
+            override fun onAttached(session: WifiAwareSession) {
+                val config = SubscribeConfig.Builder()
+                    .setServiceName("aware_msg")
+                    .build()
+                session.subscribe(config, object : DiscoverySessionCallback() {
+                    override fun onServiceDiscovered(peerHandle: PeerHandle, serviceSpecificInfo: ByteArray, matchFilter: MutableList<ByteArray>?) {
+                        val msg = String(serviceSpecificInfo)
+                        eventSink?.success(msg)
+                    }
+                }, null)
             }
             val filter = ScanFilter.Builder().setServiceUuid(serviceUuid).build()
             val settings = ScanSettings.Builder()
