@@ -2,6 +2,7 @@ package com.example.xchange
 
 import android.content.Context
 import android.net.wifi.aware.*
+import android.util.Log
 import android.os.Build
 import androidx.annotation.RequiresApi
 import io.flutter.embedding.android.FlutterActivity
@@ -20,7 +21,10 @@ class MainActivity : FlutterActivity() {
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
 
-        wifiAwareManager = getSystemService(Context.WIFI_AWARE_SERVICE) as WifiAwareManager
+        wifiAwareManager = getSystemService(Context.WIFI_AWARE_SERVICE) as? WifiAwareManager
+        if (wifiAwareManager == null) {
+            Log.e("MainActivity", "Wi-Fi Aware not supported on this device")
+        }
 
         MethodChannel(flutterEngine.dartExecutor.binaryMessenger, channel).setMethodCallHandler { call, result ->
             when (call.method) {
@@ -49,6 +53,10 @@ class MainActivity : FlutterActivity() {
     }
 
     private fun startPublishing(message: String) {
+        if (wifiAwareManager == null) {
+            Log.e("MainActivity", "Wi-Fi Aware not supported; cannot publish.")
+            return
+        }
         wifiAwareManager?.attach(object : AttachCallback() {
             override fun onAttached(session: WifiAwareSession) {
                 val config = PublishConfig.Builder()
@@ -61,6 +69,10 @@ class MainActivity : FlutterActivity() {
     }
 
     private fun startSubscribing() {
+        if (wifiAwareManager == null) {
+            Log.e("MainActivity", "Wi-Fi Aware not supported; cannot subscribe.")
+            return
+        }
         wifiAwareManager?.attach(object : AttachCallback() {
             override fun onAttached(session: WifiAwareSession) {
                 val config = SubscribeConfig.Builder()
