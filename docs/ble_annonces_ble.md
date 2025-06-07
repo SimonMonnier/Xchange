@@ -41,6 +41,7 @@ class Announcement {
   final String description;
   final double price;
   final String? imageUrl;
+  final String? imageBase64;
   final String? phone;
 
   Announcement({
@@ -49,6 +50,7 @@ class Announcement {
     required this.description,
     required this.price,
     this.imageUrl,
+    this.imageBase64,
     this.phone,
   });
 
@@ -58,6 +60,7 @@ class Announcement {
         'description': description,
         'price': price,
         'imageUrl': imageUrl,
+        'imageBase64': imageBase64,
         'phone': phone,
       };
 
@@ -67,6 +70,7 @@ class Announcement {
         description: json['description'],
         price: (json['price'] as num).toDouble(),
         imageUrl: json['imageUrl'],
+        imageBase64: json['imageBase64'],
         phone: json['phone'],
       );
 }

@@ -1,9 +1,12 @@
 import 'package:flutter/material.dart';
 
+import 'dart:convert';
+
 import 'models/announcement.dart';
 import 'nearby_ads_service.dart';
 import 'package:permission_handler/permission_handler.dart';
 import 'package:url_launcher/url_launcher.dart';
+import 'package:image_picker/image_picker.dart';
 
 void main() {
   runApp(const MyApp());
@@ -115,6 +118,18 @@ class _MyAdsPageState extends State<MyAdsPage> {
   final TextEditingController _priceController = TextEditingController();
   final TextEditingController _imageController = TextEditingController();
   final TextEditingController _phoneController = TextEditingController();
+  String? _imageBase64;
+
+  Future<void> _pickImage() async {
+    final picker = ImagePicker();
+    final file = await picker.pickImage(source: ImageSource.gallery);
+    if (file != null) {
+      final bytes = await file.readAsBytes();
+      setState(() {
+        _imageBase64 = base64Encode(bytes);
+      });
+    }
+  }
 
   @override
   void dispose() {
@@ -177,6 +192,25 @@ class _MyAdsPageState extends State<MyAdsPage> {
                 controller: _imageController,
                 decoration: const InputDecoration(labelText: 'Image URL (optional)'),
               ),
+              const SizedBox(height: 8),
+              Row(
+                children: [
+                  ElevatedButton(
+                    onPressed: _pickImage,
+                    child: const Text('Select Image'),
+                  ),
+                  if (_imageBase64 != null)
+                    Padding(
+                      padding: const EdgeInsets.only(left: 8.0),
+                      child: Image.memory(
+                        base64Decode(_imageBase64!),
+                        width: 56,
+                        height: 56,
+                        fit: BoxFit.cover,
+                      ),
+                    ),
+                ],
+              ),
               TextField(
                 controller: _phoneController,
                 decoration: const InputDecoration(labelText: 'Phone (optional)'),
@@ -197,6 +231,7 @@ class _MyAdsPageState extends State<MyAdsPage> {
                       imageUrl: _imageController.text.trim().isEmpty
                           ? null
                           : _imageController.text.trim(),
+                      imageBase64: _imageBase64,
                       phone: _phoneController.text.trim().isEmpty
                           ? null
                           : _phoneController.text.trim(),
@@ -206,6 +241,9 @@ class _MyAdsPageState extends State<MyAdsPage> {
                     _priceController.clear();
                     _imageController.clear();
                     _phoneController.clear();
+                    setState(() {
+                      _imageBase64 = null;
+                    });
                   }
                 },
                 child: const Text('Add'),
@@ -227,9 +265,16 @@ class ReceivedPage extends StatelessWidget {
     return ListView(
       children: service.receivedAnnouncements.map((a) {
         return ListTile(
-          leading: a.imageUrl != null
-              ? Image.network(a.imageUrl!, width: 56, height: 56, fit: BoxFit.cover)
-              : null,
+          leading: a.imageBase64 != null
+              ? Image.memory(
+                  base64Decode(a.imageBase64!),
+                  width: 56,
+                  height: 56,
+                  fit: BoxFit.cover,
+                )
+              : a.imageUrl != null
+                  ? Image.network(a.imageUrl!, width: 56, height: 56, fit: BoxFit.cover)
+                  : null,
           title: Text(a.title),
           subtitle: Text('${a.description}\nPrice: ${a.price}'),
           trailing: a.phone != null

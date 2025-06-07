@@ -22,6 +22,8 @@ packages. The project now relies on `flutter_local_notifications` 19.2.1 to
 avoid compilation issues on recent Android versions. The `permission_handler`
 package is used to request runtime Bluetooth permissions. Location permission is
 only requested on Android versions prior to 12.
+The `image_picker` package is used to select an image from the device, which is
+encoded to base64 before advertising.
 
 ## BLE Advertising Example
 
