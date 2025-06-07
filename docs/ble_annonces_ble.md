@@ -105,20 +105,14 @@ void stopAdvertising() async {
 }
 ```
 
-## 5. Scan BLE périodique
-Scannez toutes les minutes pendant 10 secondes :
+## 5. Scan BLE continu
+Lancez un balayage continu pour recevoir les annonces :
 ```dart
 class BluetoothService {
-  Timer? _timer;
   final List<String> received = [];
 
-  void startScanning() {
-    _timer = Timer.periodic(const Duration(minutes: 1), (_) => _scan());
-    _scan();
-  }
-
-  void _scan() async {
-    await FlutterBluePlus.startScan(timeout: const Duration(seconds: 10));
+  Future<void> startScanning() async {
+    await FlutterBluePlus.startScan(continuousUpdates: true);
     FlutterBluePlus.scanResults.listen((results) {
       for (final r in results) {
         if (r.advertisementData.manufacturerData.containsKey(0xFFFF)) {
@@ -132,7 +126,6 @@ class BluetoothService {
   }
 
   void stopScanning() {
-    _timer?.cancel();
     FlutterBluePlus.stopScan();
   }
 }
