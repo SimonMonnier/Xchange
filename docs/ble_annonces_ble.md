@@ -10,6 +10,7 @@ Ce document explique comment développer une application Flutter capable de diff
      flutter_blue_plus: ^1.0.0
      flutter_ble_peripheral: ^1.0.0
      shared_preferences: ^2.0.0
+     flutter_p2p_connection: ^3.0.0
    ```
 
 ## 2. Permissions
@@ -40,16 +41,20 @@ class Announcement {
   final String title;
   final String description;
   final double price;
-  final String? imageUrl;
-  final String? phone;
+  final String? imageBase64;
+  final String? ip;
+  final String? ssid;
+  final String? psk;
 
   Announcement({
     required this.id,
     required this.title,
     required this.description,
     required this.price,
-    this.imageUrl,
-    this.phone,
+    this.imageBase64,
+    this.ip,
+    this.ssid,
+    this.psk,
   });
 
   Map<String, dynamic> toJson() => {
@@ -57,8 +62,10 @@ class Announcement {
         'title': title,
         'description': description,
         'price': price,
-        'imageUrl': imageUrl,
-        'phone': phone,
+        'imageBase64': imageBase64,
+        'ip': ip,
+        'ssid': ssid,
+        'psk': psk,
       };
 
   static Announcement fromJson(Map<String, dynamic> json) => Announcement(
@@ -66,8 +73,10 @@ class Announcement {
         title: json['title'],
         description: json['description'],
         price: (json['price'] as num).toDouble(),
-        imageUrl: json['imageUrl'],
-        phone: json['phone'],
+        imageBase64: json['imageBase64'],
+        ip: json['ip'],
+        ssid: json['ssid'],
+        psk: json['psk'],
       );
 }
 ```
@@ -140,8 +149,10 @@ class BluetoothService {
 
 ## 6. Interface utilisateur
 Prévoyez deux onglets :
-1. **Gestion des annonces** pour ajouter, modifier, supprimer et choisir l'annonce à diffuser (titre, description, prix, image et numéro de téléphone).
-2. **Annonces reçues** affichant les informations complètes et proposant un bouton d'appel lorsqu'un numéro est présent.
+1. **Gestion des annonces** pour ajouter, modifier, supprimer et choisir l'annonce à diffuser (titre, description, prix et image).
+2. **Annonces reçues** affichant les informations complètes et proposant un bouton d'appel lorsque l'adresse IP, le SSID et la clé Wi‑Fi Direct sont connus.
+
+Le plugin `flutter_p2p_connection` est utilisé pour créer automatiquement un groupe Wi‑Fi Direct côté diffuseur et pour que le récepteur puisse s'y connecter avant de lancer l'appel WebRTC.
 
 ## 7. Contrôle de l'état Bluetooth
 Vérifiez que Bluetooth est activé et demandez les permissions au démarrage :

@@ -13,6 +13,7 @@ import 'package:flutter_blue_plus/flutter_blue_plus.dart';
 import 'package:permission_handler/permission_handler.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:device_info_plus/device_info_plus.dart';
+import 'package:flutter_p2p_connection/flutter_p2p_connection.dart';
 
 import 'models/announcement.dart';
 
@@ -29,6 +30,8 @@ class NearbyAdsService extends ChangeNotifier {
   final Map<String, ScanResult> _resultMap = {};
   final GattServerHelper _gatt = GattServerHelper();
   final VoipService voipService = VoipService();
+  final FlutterP2pHost _p2pHost = FlutterP2pHost();
+  final FlutterP2pClient _p2pClient = FlutterP2pClient();
 
   AdsState state = AdsState.idle;
   final List<Announcement> receivedAnnouncements = [];
@@ -62,6 +65,8 @@ class NearbyAdsService extends ChangeNotifier {
       if (statuses.values.any((s) => !s.isGranted)) {
         targetState = AdsState.permissionDenied;
       } else {
+        await _p2pHost.initialize();
+        await _p2pClient.initialize();
         await _loadAnnouncements();
 
         try {
@@ -148,8 +153,7 @@ class NearbyAdsService extends ChangeNotifier {
     required String title,
     required String description,
     required double price,
-    String? imageUrl,
-    String? phone,
+    Uint8List? imageBytes,
   }) async {
     final ip = await _getLocalIp();
     final ad = Announcement(
@@ -157,8 +161,7 @@ class NearbyAdsService extends ChangeNotifier {
       title: title,
       description: description,
       price: price,
-      imageUrl: imageUrl,
-      phone: phone,
+      imageBase64: imageBytes != null ? base64Encode(imageBytes) : null,
       ip: ip,
     );
     announcements.add(ad);
@@ -185,18 +188,27 @@ class NearbyAdsService extends ChangeNotifier {
 
   Future<void> startAdvertising(Announcement ad) async {
     selected = ad;
-    final jsonStr = jsonEncode(ad.toJson());
+    final hostState = await _p2pHost.createGroup(advertise: false);
+    final updated = Announcement(
+      id: ad.id,
+      title: ad.title,
+      description: ad.description,
+      price: ad.price,
+      imageBase64: ad.imageBase64,
+      ip: hostState.hostIpAddress ?? await _getLocalIp(),
+      ssid: hostState.ssid,
+      psk: hostState.preSharedKey,
+    );
+    final jsonStr = jsonEncode(updated.toJson());
     final bytes = Uint8List.fromList(utf8.encode(jsonStr));
     Uint8List? imageBytes;
-    if (ad.imageUrl != null && ad.imageUrl!.isNotEmpty) {
+    if (ad.imageBase64 != null && ad.imageBase64!.isNotEmpty) {
       try {
-        final resp = await http.get(Uri.parse(ad.imageUrl!));
-        if (resp.statusCode == 200) {
-          imageBytes = resp.bodyBytes;
-        }
+        imageBytes = base64Decode(ad.imageBase64!);
       } catch (_) {}
     }
-    await _gatt.start(ad, imageBytes);
+    await _gatt.start(updated, imageBytes);
+    selected = updated;
     await voipService.startServer();
     await _peripheral.start(
       advertiseData: AdvertiseData(
@@ -210,6 +222,7 @@ class NearbyAdsService extends ChangeNotifier {
 
   Future<void> stopAdvertising() async {
     selected = null;
+    await _p2pHost.removeGroup();
     await _peripheral.stop();
     await _gatt.stop();
     await voipService.dispose();
@@ -234,13 +247,25 @@ class NearbyAdsService extends ChangeNotifier {
           .firstWhere((c) => c.uuid.toString() == GattServerHelper.imageCharUuid)
           .read();
       final map = jsonDecode(utf8.decode(adData));
-      map['imageUrl'] = imgBytes.isNotEmpty ? base64Encode(imgBytes) : null;
+      map['imageBase64'] =
+          imgBytes.isNotEmpty ? base64Encode(imgBytes) : null;
       ad = Announcement.fromJson(map);
     } catch (_) {
       // ignore
     }
     await device.disconnect();
     return ad;
+  }
+
+  Future<void> callAnnouncement(Announcement ad) async {
+    if (ad.ssid != null && ad.psk != null) {
+      try {
+        await _p2pClient.connectWithCredentials(ad.ssid!, ad.psk!);
+      } catch (_) {}
+    }
+    if (ad.ip != null) {
+      await voipService.call(ad.ip!);
+    }
   }
 
   void _startScanning() {
@@ -285,6 +310,9 @@ class NearbyAdsService extends ChangeNotifier {
     await FlutterBluePlus.stopScan();
     await _scanSub?.cancel();
     _scanTimer?.cancel();
+    await _p2pClient.disconnect();
+    await _p2pHost.dispose();
+    await _p2pClient.dispose();
   }
 
   @override

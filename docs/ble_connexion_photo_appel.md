@@ -92,7 +92,13 @@ await voipService.call(ad.ip!);
 ```
 
 La communication passe alors par le réseau local sans nécessiter le réseau
-téléphonique.
+téléphonique. Cette connexion peut également fonctionner en Wi‑Fi Direct : si un
+groupe P2P est créé, le serveur écoute généralement sur l'adresse
+`192.168.49.1`, ce qui permet un appel totalement hors connexion.
+Dans l'application finale, le diffuseur crée automatiquement un groupe Wi‑Fi
+Direct grâce au plugin `flutter_p2p_connection` et diffuse son SSID et sa clé
+pré‑partagée dans l'annonce. En touchant le bouton **Appel Wi‑Fi**, le client se
+connecte à ce groupe puis lance l'appel WebRTC.
 
 ---
 

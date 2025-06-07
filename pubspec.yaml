@@ -45,6 +45,8 @@ dependencies:
   uuid: ^4.5.1
   ble_gatt_server: ^0.1.0
   flutter_webrtc: ^0.14.1
+  image_picker: ^1.0.7
+  flutter_p2p_connection: ^3.0.0
 
 dev_dependencies:
   flutter_test:

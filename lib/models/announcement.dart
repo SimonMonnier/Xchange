@@ -3,18 +3,20 @@ class Announcement {
   final String title;
   final String description;
   final double price;
-  final String? imageUrl;
-  final String? phone;
+  final String? imageBase64;
   final String? ip;
+  final String? ssid;
+  final String? psk;
 
   Announcement({
     required this.id,
     required this.title,
     required this.description,
     required this.price,
-    this.imageUrl,
-    this.phone,
+    this.imageBase64,
     this.ip,
+    this.ssid,
+    this.psk,
   });
 
   factory Announcement.fromJson(Map<String, dynamic> json) {
@@ -23,9 +25,10 @@ class Announcement {
       title: json['title'] as String,
       description: json['description'] as String,
       price: (json['price'] as num).toDouble(),
-      imageUrl: json['imageUrl'] as String?,
-      phone: json['phone'] as String?,
+      imageBase64: json['imageBase64'] as String?,
       ip: json['ip'] as String?,
+      ssid: json['ssid'] as String?,
+      psk: json['psk'] as String?,
     );
   }
 
@@ -34,8 +37,9 @@ class Announcement {
         'title': title,
         'description': description,
         'price': price,
-        'imageUrl': imageUrl,
-        'phone': phone,
+        'imageBase64': imageBase64,
         'ip': ip,
+        'ssid': ssid,
+        'psk': psk,
       };
 }
