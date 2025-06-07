@@ -1,6 +1,11 @@
 import 'dart:async';
 import 'dart:convert';
 import 'dart:typed_data';
+import 'dart:io';
+import 'package:http/http.dart' as http;
+import 'package:uuid/uuid.dart';
+import 'gatt_server_helper.dart';
+import 'voip_service.dart';
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter_ble_peripheral/flutter_ble_peripheral.dart';
@@ -8,7 +13,6 @@ import 'package:flutter_blue_plus/flutter_blue_plus.dart';
 import 'package:permission_handler/permission_handler.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:device_info_plus/device_info_plus.dart';
-import 'dart:io';
 
 import 'models/announcement.dart';
 
@@ -22,6 +26,9 @@ enum AdsState { idle, ready, permissionDenied }
 
 class NearbyAdsService extends ChangeNotifier {
   final FlutterBlePeripheral _peripheral = FlutterBlePeripheral();
+  final Map<String, ScanResult> _resultMap = {};
+  final GattServerHelper _gatt = GattServerHelper();
+  final VoipService voipService = VoipService();
 
   AdsState state = AdsState.idle;
   final List<Announcement> receivedAnnouncements = [];
@@ -67,6 +74,7 @@ class NearbyAdsService extends ChangeNotifier {
                 try {
                   final map = jsonDecode(jsonStr) as Map<String, dynamic>;
                   final ad = Announcement.fromJson(map);
+                  _resultMap[ad.id] = result;
                   if (receivedAnnouncements
                       .every((existing) => existing.id != ad.id)) {
                     receivedAnnouncements.add(ad);
@@ -111,6 +119,7 @@ class NearbyAdsService extends ChangeNotifier {
             try {
               final map = jsonDecode(jsonStr) as Map<String, dynamic>;
               final ad = Announcement.fromJson(map);
+              _resultMap[ad.id] = result;
               if (receivedAnnouncements
                   .every((existing) => existing.id != ad.id)) {
                 receivedAnnouncements.add(ad);
@@ -142,13 +151,15 @@ class NearbyAdsService extends ChangeNotifier {
     String? imageUrl,
     String? phone,
   }) async {
+    final ip = await _getLocalIp();
     final ad = Announcement(
-      id: DateTime.now().millisecondsSinceEpoch.toString(),
+      id: const Uuid().v4(),
       title: title,
       description: description,
       price: price,
       imageUrl: imageUrl,
       phone: phone,
+      ip: ip,
     );
     announcements.add(ad);
     await _saveAnnouncements();
@@ -176,6 +187,17 @@ class NearbyAdsService extends ChangeNotifier {
     selected = ad;
     final jsonStr = jsonEncode(ad.toJson());
     final bytes = Uint8List.fromList(utf8.encode(jsonStr));
+    Uint8List? imageBytes;
+    if (ad.imageUrl != null && ad.imageUrl!.isNotEmpty) {
+      try {
+        final resp = await http.get(Uri.parse(ad.imageUrl!));
+        if (resp.statusCode == 200) {
+          imageBytes = resp.bodyBytes;
+        }
+      } catch (_) {}
+    }
+    await _gatt.start(ad, imageBytes);
+    await voipService.startServer();
     await _peripheral.start(
       advertiseData: AdvertiseData(
         manufacturerId: _manufacturerId,
@@ -189,7 +211,36 @@ class NearbyAdsService extends ChangeNotifier {
   Future<void> stopAdvertising() async {
     selected = null;
     await _peripheral.stop();
+    await _gatt.stop();
+    await voipService.dispose();
     notifyListeners();
+  }
+
+  Future<Announcement?> fetchFullAnnouncement(String id) async {
+    final result = _resultMap[id];
+    if (result == null) return null;
+    final device = result.device;
+    await device.connect();
+    Announcement? ad;
+    try {
+      final services = await device.discoverServices();
+      final service = services.firstWhere(
+          (s) => s.serviceUuid.toString() == GattServerHelper.serviceUuid,
+          orElse: () => throw Exception('service not found'));
+      final adData = await service.characteristics
+          .firstWhere((c) => c.uuid.toString() == GattServerHelper.adCharUuid)
+          .read();
+      final imgBytes = await service.characteristics
+          .firstWhere((c) => c.uuid.toString() == GattServerHelper.imageCharUuid)
+          .read();
+      final map = jsonDecode(utf8.decode(adData));
+      map['imageUrl'] = imgBytes.isNotEmpty ? base64Encode(imgBytes) : null;
+      ad = Announcement.fromJson(map);
+    } catch (_) {
+      // ignore
+    }
+    await device.disconnect();
+    return ad;
   }
 
   void _startScanning() {
@@ -205,6 +256,19 @@ class NearbyAdsService extends ChangeNotifier {
     final prefs = await SharedPreferences.getInstance();
     final json = jsonEncode(announcements.map((e) => e.toJson()).toList());
     await prefs.setString('announcements', json);
+  }
+
+  Future<String?> _getLocalIp() async {
+    final interfaces = await NetworkInterface.list(
+        type: InternetAddressType.IPv4, includeLoopback: false);
+    for (final interface in interfaces) {
+      for (final addr in interface.addresses) {
+        if (!addr.isLoopback) {
+          return addr.address;
+        }
+      }
+    }
+    return null;
   }
 
   Future<void> _loadAnnouncements() async {

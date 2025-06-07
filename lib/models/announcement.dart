@@ -5,6 +5,7 @@ class Announcement {
   final double price;
   final String? imageUrl;
   final String? phone;
+  final String? ip;
 
   Announcement({
     required this.id,
@@ -13,6 +14,7 @@ class Announcement {
     required this.price,
     this.imageUrl,
     this.phone,
+    this.ip,
   });
 
   factory Announcement.fromJson(Map<String, dynamic> json) {
@@ -23,6 +25,7 @@ class Announcement {
       price: (json['price'] as num).toDouble(),
       imageUrl: json['imageUrl'] as String?,
       phone: json['phone'] as String?,
+      ip: json['ip'] as String?,
     );
   }
 
@@ -33,5 +36,6 @@ class Announcement {
         'price': price,
         'imageUrl': imageUrl,
         'phone': phone,
+        'ip': ip,
       };
 }

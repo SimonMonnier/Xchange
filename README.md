@@ -26,3 +26,5 @@ only requested on Android versions prior to 12.
 ## BLE Advertising Example
 
 For a guide on building a simple application that exchanges detailed sale announcements (title, description, price, image and phone number) via Bluetooth Low Energy, see [docs/ble_annonces_ble.md](docs/ble_annonces_ble.md).
+
+The application now includes a Bluetooth connection that fetches the advertised photo using a custom GATT service. Once connected, a peer to peer voice call can be started over Wi-Fi using WebRTC.
