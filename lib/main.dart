@@ -1,18 +1,16 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import 'wifi_aware.dart';
-
-final FlutterLocalNotificationsPlugin _notificationsPlugin =
-    FlutterLocalNotificationsPlugin();
-
 import 'dart:convert';
-
 import 'models/announcement.dart';
 import 'nearby_ads_service.dart';
 import 'package:permission_handler/permission_handler.dart';
 import 'package:url_launcher/url_launcher.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:image/image.dart' as img;
+
+final FlutterLocalNotificationsPlugin _notificationsPlugin =
+    FlutterLocalNotificationsPlugin();
 
 void main() {
   runApp(const MyApp());
@@ -57,8 +55,7 @@ class _MyAppState extends State<MyApp> {
                     mainAxisAlignment: MainAxisAlignment.center,
                     children: [
                       const Text(
-                        'Permissions Bluetooth requises.
-Veuillez les activer dans les paramètres.',
+                        'Permissions Bluetooth requises.\nVeuillez les activer dans les paramètres.',
                         textAlign: TextAlign.center,
                       ),
                       const SizedBox(height: 16),
