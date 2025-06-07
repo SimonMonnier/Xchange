@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:convert';
 import 'dart:typed_data';
+import 'dart:io';
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter_ble_peripheral/flutter_ble_peripheral.dart';
@@ -9,7 +10,7 @@ import 'package:permission_handler/permission_handler.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:device_info_plus/device_info_plus.dart';
 import 'package:location/location.dart';
-import 'dart:io';
+import 'package:http/http.dart' as http;
 
 import 'models/announcement.dart';
 
@@ -53,6 +54,9 @@ class NearbyAdsService extends ChangeNotifier {
   List<Uint8List> _advertiseChunks = [];
   int _advertiseIndex = 0;
   final Map<int, _ChunkAssembly> _assemblies = {};
+
+  HttpServer? _server;
+  String? _serverBaseUrl;
 
   static const int _manufacturerId = 0xFFFF;
 
@@ -155,7 +159,11 @@ class NearbyAdsService extends ChangeNotifier {
 
   Future<void> startAdvertising(Announcement ad) async {
     selected = ad;
-    final jsonStr = jsonEncode(ad.toJson());
+    await _startServer();
+    final advertiseMap = ad
+        .copyWith(serverUrl: '$_serverBaseUrl/announcement/${ad.id}')
+        .toAdvertiseJson();
+    final jsonStr = jsonEncode(advertiseMap);
     final bytes = Uint8List.fromList(utf8.encode(jsonStr));
     const payloadSize = 20;
     final total = (bytes.length / payloadSize).ceil();
@@ -229,7 +237,62 @@ class NearbyAdsService extends ChangeNotifier {
     await _peripheral.stop();
     _advertiseTimer?.cancel();
     _advertiseChunks = [];
+    await _stopServer();
     notifyListeners();
+  }
+
+  Future<void> _startServer() async {
+    if (_server != null) return;
+    final interfaces = await NetworkInterface.list(type: InternetAddressType.IPv4);
+    final addr = interfaces
+        .expand((e) => e.addresses)
+        .firstWhere((a) => !a.isLoopback, orElse: () => InternetAddress.anyIPv4);
+    _server = await HttpServer.bind(InternetAddress.anyIPv4, 0);
+    _serverBaseUrl = 'http://${addr.address}:${_server!.port}';
+    _server!.listen((req) async {
+      final segments = req.uri.pathSegments;
+      if (segments.length == 2 && segments.first == 'announcement') {
+        final id = segments[1];
+        final ad = announcements.firstWhere(
+          (a) => a.id == id,
+          orElse: () => Announcement(
+            id: id,
+            title: '',
+            description: '',
+            price: 0,
+          ),
+        );
+        final jsonStr = jsonEncode(ad.toJson());
+        req.response.headers.contentType = ContentType.json;
+        req.response.write(jsonStr);
+      } else {
+        req.response.statusCode = HttpStatus.notFound;
+      }
+      await req.response.close();
+    });
+  }
+
+  Future<void> _stopServer() async {
+    await _server?.close();
+    _server = null;
+    _serverBaseUrl = null;
+  }
+
+  Future<void> fetchFullAnnouncement(Announcement ad) async {
+    if (ad.serverUrl == null) return;
+    try {
+      final uri = Uri.parse(ad.serverUrl!);
+      final res = await http.get(uri);
+      if (res.statusCode == 200) {
+        final map = jsonDecode(res.body) as Map<String, dynamic>;
+        final fullAd = Announcement.fromJson(map);
+        final index = receivedAnnouncements.indexWhere((a) => a.id == ad.id);
+        if (index != -1) {
+          receivedAnnouncements[index] = fullAd;
+          notifyListeners();
+        }
+      }
+    } catch (_) {}
   }
 
   Future<void> _startScanning() async {
@@ -275,6 +338,7 @@ class NearbyAdsService extends ChangeNotifier {
     await FlutterBluePlus.stopScan();
     await _scanSub?.cancel();
     _advertiseTimer?.cancel();
+    await _stopServer();
   }
 
   @override

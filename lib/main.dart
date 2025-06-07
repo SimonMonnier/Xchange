@@ -277,11 +277,28 @@ class ReceivedPage extends StatelessWidget {
                   : null,
           title: Text(a.title),
           subtitle: Text('${a.description}\nPrice: ${a.price}'),
-          trailing: IconButton(
-            icon: const Icon(Icons.delete),
-            onPressed: () {
-              service.removeReceivedAnnouncement(a);
-            },
+          onTap: () {
+            if (a.imageBase64 == null && a.serverUrl != null) {
+              service.fetchFullAnnouncement(a);
+            }
+          },
+          trailing: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              if (a.imageBase64 == null && a.serverUrl != null)
+                IconButton(
+                  icon: const Icon(Icons.download),
+                  onPressed: () {
+                    service.fetchFullAnnouncement(a);
+                  },
+                ),
+              IconButton(
+                icon: const Icon(Icons.delete),
+                onPressed: () {
+                  service.removeReceivedAnnouncement(a);
+                },
+              ),
+            ],
           ),
         );
       }).toList(),
