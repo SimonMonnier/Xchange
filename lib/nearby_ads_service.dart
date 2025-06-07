@@ -37,6 +37,10 @@ class NearbyAdsService extends ChangeNotifier {
         }
       }
     });
+    await FlutterBluePlus.turnOn();
+    await FlutterBluePlus.adapterState
+        .where((state) => state == BluetoothAdapterState.on)
+        .first;
     await FlutterBluePlus.startScan(withServices: [Guid(_serviceUuid)]);
     state = AdsState.ready;
     notifyListeners();
