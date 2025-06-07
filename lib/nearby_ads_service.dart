@@ -140,6 +140,7 @@ class NearbyAdsService extends ChangeNotifier {
     required String description,
     required double price,
     String? imageUrl,
+    String? imageBase64,
     String? phone,
   }) async {
     final ad = Announcement(
@@ -148,6 +149,7 @@ class NearbyAdsService extends ChangeNotifier {
       description: description,
       price: price,
       imageUrl: imageUrl,
+      imageBase64: imageBase64,
       phone: phone,
     );
     announcements.add(ad);
