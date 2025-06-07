@@ -4,6 +4,8 @@ import 'models/announcement.dart';
 import 'nearby_ads_service.dart';
 import 'package:permission_handler/permission_handler.dart';
 import 'dart:convert';
+import 'dart:typed_data';
+import 'package:image_picker/image_picker.dart';
 
 void main() {
   runApp(const MyApp());
@@ -113,16 +115,13 @@ class _MyAdsPageState extends State<MyAdsPage> {
   final TextEditingController _titleController = TextEditingController();
   final TextEditingController _descriptionController = TextEditingController();
   final TextEditingController _priceController = TextEditingController();
-  final TextEditingController _imageController = TextEditingController();
-  final TextEditingController _phoneController = TextEditingController();
+  Uint8List? _imageBytes;
 
   @override
   void dispose() {
     _titleController.dispose();
     _descriptionController.dispose();
     _priceController.dispose();
-    _imageController.dispose();
-    _phoneController.dispose();
     super.dispose();
   }
 
@@ -173,14 +172,19 @@ class _MyAdsPageState extends State<MyAdsPage> {
                 decoration: const InputDecoration(labelText: 'Price'),
                 keyboardType: TextInputType.number,
               ),
-              TextField(
-                controller: _imageController,
-                decoration: const InputDecoration(labelText: 'Image URL (optional)'),
-              ),
-              TextField(
-                controller: _phoneController,
-                decoration: const InputDecoration(labelText: 'Phone (optional)'),
-                keyboardType: TextInputType.phone,
+              if (_imageBytes != null)
+                Image.memory(_imageBytes!, width: 100, height: 100),
+              ElevatedButton(
+                onPressed: () async {
+                  final picker = ImagePicker();
+                  final file =
+                      await picker.pickImage(source: ImageSource.gallery);
+                  if (file != null) {
+                    _imageBytes = await file.readAsBytes();
+                    setState(() {});
+                  }
+                },
+                child: const Text('Choose Image'),
               ),
               const SizedBox(height: 8),
               ElevatedButton(
@@ -194,18 +198,13 @@ class _MyAdsPageState extends State<MyAdsPage> {
                       title: title,
                       description: description,
                       price: price,
-                      imageUrl: _imageController.text.trim().isEmpty
-                          ? null
-                          : _imageController.text.trim(),
-                      phone: _phoneController.text.trim().isEmpty
-                          ? null
-                          : _phoneController.text.trim(),
+                      imageBytes: _imageBytes,
                     );
                     _titleController.clear();
                     _descriptionController.clear();
                     _priceController.clear();
-                    _imageController.clear();
-                    _phoneController.clear();
+                    _imageBytes = null;
+                    setState(() {});
                   }
                 },
                 child: const Text('Add'),
@@ -227,8 +226,9 @@ class ReceivedPage extends StatelessWidget {
     return ListView(
       children: service.receivedAnnouncements.map((a) {
         return ListTile(
-          leading: a.imageUrl != null
-              ? Image.network(a.imageUrl!, width: 56, height: 56, fit: BoxFit.cover)
+          leading: a.imageBase64 != null
+              ? Image.memory(base64Decode(a.imageBase64!),
+                  width: 56, height: 56, fit: BoxFit.cover)
               : null,
           title: Text(a.title),
           subtitle: Text('${a.description}\nPrice: ${a.price}'),
@@ -243,8 +243,8 @@ class ReceivedPage extends StatelessWidget {
                   content: Column(
                     mainAxisSize: MainAxisSize.min,
                     children: [
-                      if (full.imageUrl != null)
-                        Image.memory(base64Decode(full.imageUrl!)),
+                      if (full.imageBase64 != null)
+                        Image.memory(base64Decode(full.imageBase64!)),
                       Text(full.description),
                       Text('Price: ${full.price}'),
                     ],
@@ -254,10 +254,10 @@ class ReceivedPage extends StatelessWidget {
                       onPressed: () => Navigator.pop(context),
                       child: const Text('Fermer'),
                     ),
-                    if (full.ip != null)
+                    if (full.ip != null && full.ssid != null && full.psk != null)
                       TextButton(
                         onPressed: () {
-                          service.voipService.call(full.ip!);
+                          service.callAnnouncement(full);
                         },
                         child: const Text('Appel Wi-Fi'),
                       ),
