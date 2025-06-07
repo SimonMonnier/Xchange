@@ -20,7 +20,23 @@ class NearbyAdsService extends ChangeNotifier {
 
   Future<void> initialize() async {
     await _nearby.initialize();
-    await _nearby.discover();
+    final permissionsGranted = await _nearby.android?.requestPermissions();
+    if (!(permissionsGranted ?? false)) {
+      return;
+    }
+
+    final wifiEnabled = await _nearby.android?.checkWifiService();
+    if (!(wifiEnabled ?? false)) {
+      await _nearby.openServicesSettings();
+      return;
+    }
+
+    try {
+      await _nearby.discover();
+    } on NearbyServiceException catch (e) {
+      debugPrint('Discovery error: $e');
+      return;
+    }
     _peersSub = _nearby.getPeersStream().listen((event) {
       peers = event;
       notifyListeners();
@@ -80,5 +96,13 @@ class NearbyAdsService extends ChangeNotifier {
         content: NearbyMessageTextRequest.create(value: jsonStr),
       ),
     );
+  }
+
+  @override
+  void dispose() {
+    _peersSub?.cancel();
+    unawaited(_nearby.stopDiscovery());
+    unawaited(_nearby.endCommunicationChannel());
+    super.dispose();
   }
 }
