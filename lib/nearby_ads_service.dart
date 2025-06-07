@@ -80,17 +80,17 @@ class NearbyAdsService extends ChangeNotifier {
       } else {
         await _loadAnnouncements();
 
-        try {
-          _scanSub = FlutterBluePlus.scanResults.listen((results) {
-            for (final result in results) {
-              final data =
-                  result.advertisementData.manufacturerData[_manufacturerId];
-              if (data != null) {
-                _processData(Uint8List.fromList(data));
-              }
+        _scanSub ??= FlutterBluePlus.scanResults.listen((results) {
+          for (final result in results) {
+            final data =
+                result.advertisementData.manufacturerData[_manufacturerId];
+            if (data != null) {
+              _processData(Uint8List.fromList(data));
             }
-          });
+          }
+        });
 
+        try {
           await FlutterBluePlus.turnOn().timeout(const Duration(seconds: 5));
           await FlutterBluePlus.adapterState
               .where((s) => s == BluetoothAdapterState.on)
@@ -104,36 +104,11 @@ class NearbyAdsService extends ChangeNotifier {
       }
     } catch (_) {
       // unexpected error, stay in idle state
+      targetState = AdsState.idle;
     }
 
     state = targetState;
     notifyListeners();
-    await _loadAnnouncements();
-
-    state = AdsState.ready;
-    notifyListeners();
-
-    try {
-      _scanSub = FlutterBluePlus.scanResults.listen((results) {
-        for (final result in results) {
-          final data =
-              result.advertisementData.manufacturerData[_manufacturerId];
-          if (data != null) {
-            _processData(Uint8List.fromList(data));
-          }
-        }
-      });
-
-      await FlutterBluePlus.turnOn().timeout(const Duration(seconds: 5));
-      await FlutterBluePlus.adapterState
-          .where((s) => s == BluetoothAdapterState.on)
-          .first
-          .timeout(const Duration(seconds: 5));
-
-      _startScanning();
-    } catch (_) {
-      // Ignore failures to enable Bluetooth or start scanning
-    }
   }
 
   Future<void> addAnnouncement({
@@ -266,7 +241,10 @@ class NearbyAdsService extends ChangeNotifier {
     // Restart scanning cleanly to avoid "could not find callback wrapper" errors
     // when multiple scans overlap.
     await FlutterBluePlus.stopScan();
-    await FlutterBluePlus.startScan(timeout: const Duration(seconds: 2));
+    await FlutterBluePlus.startScan(
+      timeout: const Duration(seconds: 2),
+      continuousUpdates: true,
+    );
   }
 
   Future<void> _saveAnnouncements() async {
@@ -281,7 +259,8 @@ class NearbyAdsService extends ChangeNotifier {
     if (json == null) return;
     final List data = jsonDecode(json);
     announcements
-        .addAll(data.map((e) => Announcement.fromJson(e)).toList());
+      ..clear()
+      ..addAll(data.map((e) => Announcement.fromJson(e)).toList());
   }
 
   Future<void> _stop() async {
