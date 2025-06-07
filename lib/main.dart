@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import 'models/announcement.dart';
 import 'nearby_ads_service.dart';
+import 'package:permission_handler/permission_handler.dart';
 
 void main() {
   runApp(const MyApp());
@@ -36,12 +37,34 @@ class _MyAppState extends State<MyApp> {
       home: AnimatedBuilder(
         animation: _service,
         builder: (context, _) {
-          if (_service.state != AdsState.ready) {
-            return const Scaffold(
-              body: Center(child: CircularProgressIndicator()),
-            );
+          switch (_service.state) {
+            case AdsState.ready:
+              return Home(service: _service);
+            case AdsState.permissionDenied:
+              return Scaffold(
+                body: Center(
+                  child: Column(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      const Text(
+                        'Permissions Bluetooth requises.\nVeuillez les activer dans les paramètres.',
+                        textAlign: TextAlign.center,
+                      ),
+                      const SizedBox(height: 16),
+                      ElevatedButton(
+                        onPressed: openAppSettings,
+                        child: const Text('Ouvrir les paramètres'),
+                      )
+                    ],
+                  ),
+                ),
+              );
+            case AdsState.idle:
+            default:
+              return const Scaffold(
+                body: Center(child: CircularProgressIndicator()),
+              );
           }
-          return Home(service: _service);
         },
       ),
     );

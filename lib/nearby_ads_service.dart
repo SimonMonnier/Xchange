@@ -10,7 +10,13 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 import 'models/announcement.dart';
 
-enum AdsState { idle, ready }
+/// Represents the current initialization status of [NearbyAdsService].
+///
+/// * [idle] - the service is not yet initialized.
+/// * [ready] - initialization succeeded and the service can advertise/scan.
+/// * [permissionDenied] - required permissions were not granted and the
+///   service cannot operate.
+enum AdsState { idle, ready, permissionDenied }
 
 class NearbyAdsService extends ChangeNotifier {
   final FlutterBlePeripheral _peripheral = FlutterBlePeripheral();
@@ -33,6 +39,8 @@ class NearbyAdsService extends ChangeNotifier {
       Permission.locationWhenInUse,
     ].request();
     if (statuses.values.any((s) => !s.isGranted)) {
+      state = AdsState.permissionDenied;
+      notifyListeners();
       return;
     }
 
