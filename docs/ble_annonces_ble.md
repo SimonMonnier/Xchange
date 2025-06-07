@@ -123,12 +123,16 @@ Future<void> checkBluetooth() async {
   if (!await FlutterBluePlus.isEnabled) {
     await FlutterBluePlus.turnOn();
   }
-  await [
+  final perms = [
     Permission.bluetooth,
     Permission.bluetoothScan,
     Permission.bluetoothConnect,
-    Permission.locationWhenInUse,
-  ].request();
+  ];
+  final info = await DeviceInfoPlugin().androidInfo;
+  if (info.version.sdkInt <= 30) {
+    perms.add(Permission.locationWhenInUse);
+  }
+  await perms.request();
 }
 ```
 

@@ -7,6 +7,8 @@ import 'package:flutter_ble_peripheral/flutter_ble_peripheral.dart';
 import 'package:flutter_blue_plus/flutter_blue_plus.dart';
 import 'package:permission_handler/permission_handler.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:device_info_plus/device_info_plus.dart';
+import 'dart:io';
 
 import 'models/announcement.dart';
 
@@ -32,12 +34,22 @@ class NearbyAdsService extends ChangeNotifier {
   static const int _manufacturerId = 0xFFFF;
 
   Future<void> initialize() async {
-    final statuses = await [
+    int sdkInt = 0;
+    if (Platform.isAndroid) {
+      final info = await DeviceInfoPlugin().androidInfo;
+      sdkInt = info.version.sdkInt;
+    }
+
+    final permissions = [
       Permission.bluetoothScan,
       Permission.bluetoothAdvertise,
       Permission.bluetoothConnect,
-      Permission.locationWhenInUse,
-    ].request();
+    ];
+    if (sdkInt <= 30) {
+      permissions.add(Permission.locationWhenInUse);
+    }
+
+    final statuses = await permissions.request();
     if (statuses.values.any((s) => !s.isGranted)) {
       state = AdsState.permissionDenied;
       notifyListeners();
