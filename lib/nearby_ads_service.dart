@@ -213,6 +213,9 @@ class NearbyAdsService extends ChangeNotifier {
     if (_advertiseChunks.isEmpty) return;
     final data = _advertiseChunks[_advertiseIndex];
     _advertiseIndex = (_advertiseIndex + 1) % _advertiseChunks.length;
+    // Stop the previous advertisement before starting a new one to
+    // avoid "ADVERTISE_FAILED_TOO_MANY_ADVERTISERS" errors on Android.
+    await _peripheral.stop();
     await _peripheral.start(
       advertiseData: AdvertiseData(
         manufacturerId: _manufacturerId,
@@ -260,6 +263,9 @@ class NearbyAdsService extends ChangeNotifier {
   }
 
   void _scan() async {
+    // Restart scanning cleanly to avoid "could not find callback wrapper" errors
+    // when multiple scans overlap.
+    await FlutterBluePlus.stopScan();
     await FlutterBluePlus.startScan(timeout: const Duration(seconds: 2));
   }
 
