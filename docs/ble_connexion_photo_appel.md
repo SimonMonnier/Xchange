@@ -5,78 +5,55 @@ au téléphone qui reçoit une annonce de se connecter en Bluetooth à l'apparei
 diffuseur. L'objectif est de récupérer l'image associée à l'annonce et de
 proposer un bouton d'appel vers le diffuseur.
 
-## 1. Service GATT sur le diffuseur
+## 1. Serveur HTTP sur le diffuseur
 
-En plus de la diffusion via `flutter_ble_peripheral`, l'appareil qui partage
-l'annonce peut exposer un petit serveur BLE (service GATT) pour fournir des
-informations détaillées.
-
-1. Définissez un UUID de service personnalisé, par exemple
-   `0000abcd-0000-1000-8000-00805f9b34fb`.
-2. Créez deux caractéristiques :
-   - **Annonce** (`0000abcd-0001-1000-8000-00805f9b34fb`) contenant le JSON
-     complet de l'annonce (incluant `imageBase64` si l'image doit être
-     transférée hors connexion).
-   - **Image** (`0000abcd-0002-1000-8000-00805f9b34fb`) pour envoyer les octets
-de l'image si elle est trop volumineuse pour être incluse dans le JSON.
-3. Utilisez une bibliothèque comme `flutter_gatt_server` (Android uniquement) ou
-   un plugin équivalent pour publier ce service.
+En plus de diffuser l'identifiant et les informations principales via BLE,
+l'appareil qui partage l'annonce lance un petit serveur HTTP local. Ce serveur
+fonctionne aussi bien en Wi‑Fi standard qu'en Wi‑Fi Direct et renvoie le JSON
+complet de l'annonce ainsi que l'image associée :
 
 ```dart
-final serviceUuid = Guid('0000abcd-0000-1000-8000-00805f9b34fb');
-final adChar = Characteristic(
-  uuid: Guid('0000abcd-0001-1000-8000-00805f9b34fb'),
-  value: utf8.encode(jsonEncode(ad.toJson())),
-);
-final imageChar = Characteristic(
-  uuid: Guid('0000abcd-0002-1000-8000-00805f9b34fb'),
-  value: imageBytes,
-);
-GattServer().addService(BleService(serviceUuid, [adChar, imageChar]));
+final server = await HttpServer.bind(InternetAddress.anyIPv4, 8081);
+server.listen((req) async {
+  if (req.uri.path == '/announcement') {
+    req.response.headers.contentType = ContentType.json;
+    req.response.write(jsonEncode(ad.toJson()));
+  } else if (req.uri.path == '/image' && ad.imageBase64 != null) {
+    req.response.headers.contentType =
+        ContentType('application', 'octet-stream');
+    req.response.add(base64Decode(ad.imageBase64!));
+  } else {
+    req.response.statusCode = HttpStatus.notFound;
+  }
+  await req.response.close();
+});
 ```
 
 ## 2. Connexion côté récepteur
 
 Lorsqu'un appareil détecte une annonce grâce au paquet publicitaire, il peut se
-connecter à l'annonceur avec `flutter_blue_plus` pour récupérer les données
-supplémentaires :
+connecter au groupe Wi‑Fi Direct indiqué dans l'annonce (SSID et clé
+pré‑partagée). Une fois connecté, les détails complets sont récupérés via HTTP :
 
 ```dart
-Future<Announcement?> fetchFullAd(ScanResult result) async {
-  final device = result.device;
-  await device.connect();
+Future<Announcement?> fetchFullAd(Announcement ad) async {
+  if (ad.ssid != null && ad.psk != null) {
+    await p2pClient.connectWithCredentials(ad.ssid!, ad.psk!);
+  }
 
-  final services = await device.discoverServices();
-  final service = services.firstWhere(
-    (s) => s.serviceUuid.toString() ==
-        '0000abcd-0000-1000-8000-00805f9b34fb',
-  );
+  final resp = await http
+      .get(Uri.parse('http://${ad.ip}:8081/announcement'))
+      .timeout(const Duration(seconds: 5));
 
-  final adData = await service
-      .characteristics
-      .firstWhere((c) =>
-          c.uuid.toString() == '0000abcd-0001-1000-8000-00805f9b34fb')
-      .read();
-
-  final imgBytes = await service
-      .characteristics
-      .firstWhere((c) =>
-          c.uuid.toString() == '0000abcd-0002-1000-8000-00805f9b34fb')
-      .read();
-
-  final map = jsonDecode(utf8.decode(adData));
-  map['imageBase64'] = base64Encode(imgBytes);
-  await device.disconnect();
-
-  return Announcement.fromJson(map);
+  if (resp.statusCode == 200) {
+    return Announcement.fromJson(jsonDecode(resp.body));
+  }
+  return null;
 }
 ```
 
-L'image est ensuite affichée avec `Image.memory` :
-
-```dart
-Image.memory(base64Decode(ad.imageBase64!));
-```
+Si `imageBase64` est présent dans la réponse, elle peut être affichée avec
+`Image.memory(base64Decode(ad.imageBase64!))`.
 
 ## 3. Appeler le diffuseur
 

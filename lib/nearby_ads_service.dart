@@ -4,7 +4,7 @@ import 'dart:typed_data';
 import 'dart:io';
 import 'package:http/http.dart' as http;
 import 'package:uuid/uuid.dart';
-import 'gatt_server_helper.dart';
+import 'ad_http_server.dart';
 import 'voip_service.dart';
 
 import 'package:flutter/foundation.dart';
@@ -28,7 +28,7 @@ enum AdsState { idle, ready, permissionDenied }
 class NearbyAdsService extends ChangeNotifier {
   final FlutterBlePeripheral _peripheral = FlutterBlePeripheral();
   final Map<String, ScanResult> _resultMap = {};
-  final GattServerHelper _gatt = GattServerHelper();
+  final AdHttpServer _httpServer = AdHttpServer();
   final VoipService voipService = VoipService();
   final FlutterP2pHost _p2pHost = FlutterP2pHost();
   final FlutterP2pClient _p2pClient = FlutterP2pClient();
@@ -194,20 +194,14 @@ class NearbyAdsService extends ChangeNotifier {
       title: ad.title,
       description: ad.description,
       price: ad.price,
-      imageBase64: ad.imageBase64,
+      imageBase64: null,
       ip: hostState.hostIpAddress ?? await _getLocalIp(),
       ssid: hostState.ssid,
       psk: hostState.preSharedKey,
     );
     final jsonStr = jsonEncode(updated.toJson());
     final bytes = Uint8List.fromList(utf8.encode(jsonStr));
-    Uint8List? imageBytes;
-    if (ad.imageBase64 != null && ad.imageBase64!.isNotEmpty) {
-      try {
-        imageBytes = base64Decode(ad.imageBase64!);
-      } catch (_) {}
-    }
-    await _gatt.start(updated, imageBytes);
+    await _httpServer.start(ad);
     selected = updated;
     await voipService.startServer();
     await _peripheral.start(
@@ -224,37 +218,31 @@ class NearbyAdsService extends ChangeNotifier {
     selected = null;
     await _p2pHost.removeGroup();
     await _peripheral.stop();
-    await _gatt.stop();
+    await _httpServer.stop();
     await voipService.dispose();
     notifyListeners();
   }
 
   Future<Announcement?> fetchFullAnnouncement(String id) async {
-    final result = _resultMap[id];
-    if (result == null) return null;
-    final device = result.device;
-    await device.connect();
-    Announcement? ad;
-    try {
-      final services = await device.discoverServices();
-      final service = services.firstWhere(
-          (s) => s.serviceUuid.toString() == GattServerHelper.serviceUuid,
-          orElse: () => throw Exception('service not found'));
-      final adData = await service.characteristics
-          .firstWhere((c) => c.uuid.toString() == GattServerHelper.adCharUuid)
-          .read();
-      final imgBytes = await service.characteristics
-          .firstWhere((c) => c.uuid.toString() == GattServerHelper.imageCharUuid)
-          .read();
-      final map = jsonDecode(utf8.decode(adData));
-      map['imageBase64'] =
-          imgBytes.isNotEmpty ? base64Encode(imgBytes) : null;
-      ad = Announcement.fromJson(map);
-    } catch (_) {
-      // ignore
+    final ad = receivedAnnouncements
+        .firstWhere((a) => a.id == id, orElse: () => Announcement(
+            id: '', title: '', description: '', price: 0));
+    if (ad.id.isEmpty || ad.ip == null) return null;
+    if (ad.ssid != null && ad.psk != null) {
+      try {
+        await _p2pClient.connectWithCredentials(ad.ssid!, ad.psk!);
+      } catch (_) {}
     }
-    await device.disconnect();
-    return ad;
+    try {
+      final resp = await http
+          .get(Uri.parse('http://${ad.ip}:8081/announcement'))
+          .timeout(const Duration(seconds: 5));
+      if (resp.statusCode == 200) {
+        final map = jsonDecode(resp.body) as Map<String, dynamic>;
+        return Announcement.fromJson(map);
+      }
+    } catch (_) {}
+    return null;
   }
 
   Future<void> callAnnouncement(Announcement ad) async {
