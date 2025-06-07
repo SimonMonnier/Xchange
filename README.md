@@ -19,4 +19,5 @@ samples, guidance on mobile development, and a full API reference.
 
 After cloning the repository, run `flutter pub get` to install the latest
 packages. The project now relies on `flutter_local_notifications` 19.2.1 to
-avoid compilation issues on recent Android versions.
+avoid compilation issues on recent Android versions. The `permission_handler`
+package is used to request runtime Bluetooth and location permissions.
