@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
 
 import 'models/sale_ad.dart';
@@ -16,6 +17,14 @@ class MyApp extends StatefulWidget {
 
 class _MyAppState extends State<MyApp> {
   final NearbyAdsService service = NearbyAdsService();
+
+  @override
+  void initState() {
+    super.initState();
+    // Service initializes itself in the constructor, but calling here
+    // ensures permissions are requested as soon as the app starts.
+    unawaited(service.initialize());
+  }
 
   @override
   void dispose() {
@@ -46,14 +55,8 @@ class Home extends StatelessWidget {
   Widget build(BuildContext context) {
     switch (service.state) {
       case AdsState.idle:
-        return Scaffold(
-          appBar: AppBar(title: const Text('Nearby Ads')),
-          body: Center(
-            child: ElevatedButton(
-              onPressed: service.initialize,
-              child: const Text('Start'),
-            ),
-          ),
+        return const Scaffold(
+          body: Center(child: CircularProgressIndicator()),
         );
       case AdsState.ready:
         return AdsPage(service: service);
