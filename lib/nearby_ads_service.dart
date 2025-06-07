@@ -23,6 +23,7 @@ class NearbyAdsService extends ChangeNotifier {
   Future<void> initialize() async {
     _scanSub = _bluetooth.scanResults.listen((results) {
       if (!hasListeners) return;
+
       for (final result in results) {
         final bytes =
             result.advertisementData.serviceData[Guid(_serviceUuid)];
@@ -62,6 +63,16 @@ class NearbyAdsService extends ChangeNotifier {
 
   @override
   void dispose() {
+
+    unawaited(_stop());
+
+    _peersSub?.cancel();
+    unawaited(Future<void>(() async {
+      await _nearby.stopDiscovery();
+    }));
+    unawaited(Future<void>(() async {
+      await _nearby.endCommunicationChannel();
+    }));
     super.dispose();
     unawaited(_stop());
   }
