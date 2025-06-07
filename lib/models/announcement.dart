@@ -1,15 +1,37 @@
 class Announcement {
   final String id;
-  final String text;
+  final String title;
+  final String description;
+  final double price;
+  final String? imageUrl;
+  final String? phone;
 
-  Announcement({required this.id, required this.text});
+  Announcement({
+    required this.id,
+    required this.title,
+    required this.description,
+    required this.price,
+    this.imageUrl,
+    this.phone,
+  });
 
   factory Announcement.fromJson(Map<String, dynamic> json) {
-    return Announcement(id: json['id'] as String, text: json['text'] as String);
+    return Announcement(
+      id: json['id'] as String,
+      title: json['title'] as String,
+      description: json['description'] as String,
+      price: (json['price'] as num).toDouble(),
+      imageUrl: json['imageUrl'] as String?,
+      phone: json['phone'] as String?,
+    );
   }
 
   Map<String, dynamic> toJson() => {
         'id': id,
-        'text': text,
+        'title': title,
+        'description': description,
+        'price': price,
+        'imageUrl': imageUrl,
+        'phone': phone,
       };
 }

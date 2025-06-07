@@ -37,13 +37,38 @@ Créez une classe simple pour représenter une annonce :
 ```dart
 class Announcement {
   final String id;
-  final String text;
+  final String title;
+  final String description;
+  final double price;
+  final String? imageUrl;
+  final String? phone;
 
-  Announcement({required this.id, required this.text});
+  Announcement({
+    required this.id,
+    required this.title,
+    required this.description,
+    required this.price,
+    this.imageUrl,
+    this.phone,
+  });
 
-  Map<String, dynamic> toJson() => {'id': id, 'text': text};
-  static Announcement fromJson(Map<String, dynamic> json) =>
-      Announcement(id: json['id'], text: json['text']);
+  Map<String, dynamic> toJson() => {
+        'id': id,
+        'title': title,
+        'description': description,
+        'price': price,
+        'imageUrl': imageUrl,
+        'phone': phone,
+      };
+
+  static Announcement fromJson(Map<String, dynamic> json) => Announcement(
+        id: json['id'],
+        title: json['title'],
+        description: json['description'],
+        price: (json['price'] as num).toDouble(),
+        imageUrl: json['imageUrl'],
+        phone: json['phone'],
+      );
 }
 ```
 
@@ -65,10 +90,11 @@ Future<List<Announcement>> loadAnnouncements() async {
 ```
 
 ## 4. Diffusion BLE
-Utilisez `flutter_ble_peripheral` pour diffuser le texte dans les données fabricant :
+Utilisez `flutter_ble_peripheral` pour diffuser le JSON décrivant l'annonce dans les données fabricant :
 ```dart
-void startAdvertising(String text) async {
-  final bytes = [0xFF, 0xFF, ...utf8.encode(text)];
+void startAdvertising(Announcement ad) async {
+  final jsonStr = jsonEncode(ad.toJson());
+  final bytes = [0xFF, 0xFF, ...utf8.encode(jsonStr)];
   await FlutterBlePeripheral().startAdvertising(
     manufacturerData: Uint8List.fromList(bytes),
   );
@@ -97,8 +123,9 @@ class BluetoothService {
       for (final r in results) {
         if (r.advertisementData.manufacturerData.containsKey(0xFFFF)) {
           final bytes = r.advertisementData.manufacturerData[0xFFFF]!;
-          final text = utf8.decode(bytes);
-          if (!received.contains(text)) received.add(text);
+          final jsonStr = utf8.decode(bytes);
+          final ad = Announcement.fromJson(jsonDecode(jsonStr));
+          if (!received.any((a) => a.id == ad.id)) received.add(ad);
         }
       }
     });
@@ -113,8 +140,8 @@ class BluetoothService {
 
 ## 6. Interface utilisateur
 Prévoyez deux onglets :
-1. **Gestion des annonces** pour ajouter, modifier, supprimer et choisir l'annonce à diffuser.
-2. **Annonces reçues** affichant les textes détectés.
+1. **Gestion des annonces** pour ajouter, modifier, supprimer et choisir l'annonce à diffuser (titre, description, prix, image et numéro de téléphone).
+2. **Annonces reçues** affichant les informations complètes et proposant un bouton d'appel lorsqu'un numéro est présent.
 
 ## 7. Contrôle de l'état Bluetooth
 Vérifiez que Bluetooth est activé et demandez les permissions au démarrage :

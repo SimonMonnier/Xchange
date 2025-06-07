@@ -24,7 +24,7 @@ class NearbyAdsService extends ChangeNotifier {
   final FlutterBlePeripheral _peripheral = FlutterBlePeripheral();
 
   AdsState state = AdsState.idle;
-  final List<String> receivedAnnouncements = [];
+  final List<Announcement> receivedAnnouncements = [];
   final List<Announcement> announcements = [];
   Announcement? selected;
 
@@ -62,10 +62,17 @@ class NearbyAdsService extends ChangeNotifier {
       for (final result in results) {
         final data = result.advertisementData.manufacturerData[_manufacturerId];
         if (data != null) {
-          final text = utf8.decode(data);
-          if (!receivedAnnouncements.contains(text)) {
-            receivedAnnouncements.add(text);
-            notifyListeners();
+          final jsonStr = utf8.decode(data);
+          try {
+            final map = jsonDecode(jsonStr) as Map<String, dynamic>;
+            final ad = Announcement.fromJson(map);
+            if (receivedAnnouncements
+                .every((existing) => existing.id != ad.id)) {
+              receivedAnnouncements.add(ad);
+              notifyListeners();
+            }
+          } catch (_) {
+            // ignore malformed data
           }
         }
       }
@@ -81,10 +88,20 @@ class NearbyAdsService extends ChangeNotifier {
     notifyListeners();
   }
 
-  Future<void> addAnnouncement(String text) async {
+  Future<void> addAnnouncement({
+    required String title,
+    required String description,
+    required double price,
+    String? imageUrl,
+    String? phone,
+  }) async {
     final ad = Announcement(
       id: DateTime.now().millisecondsSinceEpoch.toString(),
-      text: text,
+      title: title,
+      description: description,
+      price: price,
+      imageUrl: imageUrl,
+      phone: phone,
     );
     announcements.add(ad);
     await _saveAnnouncements();
@@ -110,7 +127,8 @@ class NearbyAdsService extends ChangeNotifier {
 
   Future<void> startAdvertising(Announcement ad) async {
     selected = ad;
-    final bytes = Uint8List.fromList(utf8.encode(ad.text));
+    final jsonStr = jsonEncode(ad.toJson());
+    final bytes = Uint8List.fromList(utf8.encode(jsonStr));
     await _peripheral.start(
       advertiseData: AdvertiseData(
         manufacturerId: _manufacturerId,
