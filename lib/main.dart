@@ -50,29 +50,13 @@ class Home extends StatelessWidget {
           appBar: AppBar(title: const Text('Nearby Ads')),
           body: Center(
             child: ElevatedButton(
-              onPressed: service.initialize,
-              child: const Text('Start Discovering'),
+              onPressed: () =>
+                  service.initialize(apiKey: 'API_KEY_HERE'),
+              child: const Text('Start'),
             ),
           ),
         );
-      case AdsState.discovering:
-        return Scaffold(
-          appBar: AppBar(title: const Text('Select Peer')),
-          body: ListView(
-            children: [
-              ...service.peers.map(
-                (d) => ListTile(
-                  title: Text(d.info.displayName),
-                  subtitle: Text(
-                    d.status.isConnected ? 'Connected' : 'Tap to connect',
-                  ),
-                  onTap: () => service.connect(d),
-                ),
-              ),
-            ],
-          ),
-        );
-      case AdsState.connected:
+      case AdsState.ready:
         return AdsPage(service: service);
     }
   }
@@ -123,7 +107,7 @@ class _AdsPageState extends State<AdsPage> {
                       description: _descriptionController.text,
                       price: double.tryParse(_priceController.text) ?? 0,
                     );
-                    widget.service.sendAd(ad);
+                    widget.service.publishAd(ad);
                   },
                   child: const Text('Send Ad'),
                 ),
