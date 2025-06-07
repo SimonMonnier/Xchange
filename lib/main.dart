@@ -117,7 +117,6 @@ class _MyAdsPageState extends State<MyAdsPage> {
   final TextEditingController _descriptionController = TextEditingController();
   final TextEditingController _priceController = TextEditingController();
   final TextEditingController _imageController = TextEditingController();
-  final TextEditingController _phoneController = TextEditingController();
   String? _imageBase64;
 
   Future<void> _pickImage() async {
@@ -137,7 +136,6 @@ class _MyAdsPageState extends State<MyAdsPage> {
     _descriptionController.dispose();
     _priceController.dispose();
     _imageController.dispose();
-    _phoneController.dispose();
     super.dispose();
   }
 
@@ -211,11 +209,6 @@ class _MyAdsPageState extends State<MyAdsPage> {
                     ),
                 ],
               ),
-              TextField(
-                controller: _phoneController,
-                decoration: const InputDecoration(labelText: 'Phone (optional)'),
-                keyboardType: TextInputType.phone,
-              ),
               const SizedBox(height: 8),
               ElevatedButton(
                 onPressed: () {
@@ -232,15 +225,11 @@ class _MyAdsPageState extends State<MyAdsPage> {
                           ? null
                           : _imageController.text.trim(),
                       imageBase64: _imageBase64,
-                      phone: _phoneController.text.trim().isEmpty
-                          ? null
-                          : _phoneController.text.trim(),
                     );
                     _titleController.clear();
                     _descriptionController.clear();
                     _priceController.clear();
                     _imageController.clear();
-                    _phoneController.clear();
                     setState(() {
                       _imageBase64 = null;
                     });
@@ -277,14 +266,12 @@ class ReceivedPage extends StatelessWidget {
                   : null,
           title: Text(a.title),
           subtitle: Text('${a.description}\nPrice: ${a.price}'),
-          trailing: a.phone != null
-              ? IconButton(
-                  icon: const Icon(Icons.phone),
-                  onPressed: () {
-                    launchUrl(Uri.parse('tel:${a.phone}'));
-                  },
-                )
-              : null,
+          trailing: IconButton(
+            icon: const Icon(Icons.delete),
+            onPressed: () {
+              service.removeReceivedAnnouncement(a);
+            },
+          ),
         );
       }).toList(),
     );

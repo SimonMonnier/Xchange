@@ -27,4 +27,4 @@ encoded to base64 before advertising.
 
 ## BLE Advertising Example
 
-For a guide on building a simple application that exchanges detailed sale announcements (title, description, price, image and phone number) via Bluetooth Low Energy, see [docs/ble_annonces_ble.md](docs/ble_annonces_ble.md).
+For a guide on building a simple application that exchanges detailed sale announcements (title, description, price and image) via Bluetooth Low Energy, see [docs/ble_annonces_ble.md](docs/ble_annonces_ble.md).
