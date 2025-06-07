@@ -86,7 +86,7 @@ class NearbyAdsService extends ChangeNotifier {
               final data =
                   result.advertisementData.manufacturerData[_manufacturerId];
               if (data != null) {
-                _processData(data);
+                _processData(Uint8List.fromList(data));
               }
             }
           });
@@ -119,7 +119,7 @@ class NearbyAdsService extends ChangeNotifier {
           final data =
               result.advertisementData.manufacturerData[_manufacturerId];
           if (data != null) {
-            _processData(data);
+            _processData(Uint8List.fromList(data));
           }
         }
       });
