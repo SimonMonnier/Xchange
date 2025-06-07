@@ -4,6 +4,7 @@ import 'dart:convert';
 import 'package:flutter/foundation.dart';
 import 'package:flutter_ble_peripheral/flutter_ble_peripheral.dart';
 import 'package:flutter_blue_plus/flutter_blue_plus.dart';
+import 'package:permission_handler/permission_handler.dart';
 
 import 'models/sale_ad.dart';
 
@@ -19,6 +20,16 @@ class NearbyAdsService extends ChangeNotifier {
   static const String _serviceUuid = '0000feed-0000-1000-8000-00805f9b34fb';
 
   Future<void> initialize() async {
+    final statuses = await [
+      Permission.bluetoothScan,
+      Permission.bluetoothAdvertise,
+      Permission.bluetoothConnect,
+      Permission.locationWhenInUse,
+    ].request();
+    if (statuses.values.any((s) => !s.isGranted)) {
+      return;
+    }
+
     _scanSub = FlutterBluePlus.scanResults.listen((results) {
       if (!hasListeners) return;
 

@@ -37,6 +37,7 @@ dependencies:
   flutter_ble_peripheral: ^1.2.6
   flutter_blue_plus: ^1.35.5
   flutter_local_notifications: ^19.2.1
+  permission_handler: ^11.3.1
 
 dev_dependencies:
   flutter_test:
