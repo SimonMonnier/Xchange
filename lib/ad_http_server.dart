@@ -7,7 +7,13 @@ class AdHttpServer {
   HttpServer? _server;
 
   Future<void> start(Announcement ad) async {
-    _server = await HttpServer.bind(InternetAddress.anyIPv4, 8081);
+    // Ensure any previous server is closed before starting a new one
+    await stop();
+    _server = await HttpServer.bind(
+      InternetAddress.anyIPv4,
+      8081,
+      shared: true,
+    );
     _server!.listen((HttpRequest request) async {
       if (request.uri.path == '/announcement') {
         request.response.headers.contentType = ContentType.json;

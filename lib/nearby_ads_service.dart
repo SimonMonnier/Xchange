@@ -183,10 +183,18 @@ class NearbyAdsService extends ChangeNotifier {
       await stopAdvertising();
       return;
     }
+    // If another announcement is currently being advertised, stop it first
+    if (selected != null) {
+      await stopAdvertising();
+    }
     await startAdvertising(ad);
   }
 
   Future<void> startAdvertising(Announcement ad) async {
+    // Ensure any previous advertisement is stopped before starting a new one
+    if (selected != null) {
+      await stopAdvertising();
+    }
     selected = ad;
     final hostState = await _p2pHost.createGroup(advertise: false);
     final updated = Announcement(
