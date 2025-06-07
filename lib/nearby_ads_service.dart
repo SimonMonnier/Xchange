@@ -1,105 +1,68 @@
 import 'dart:async';
 import 'dart:convert';
+import 'dart:typed_data';
 
 import 'package:flutter/foundation.dart';
-import 'package:nearby_service/nearby_service.dart';
+import 'package:flutter_ble_peripheral/flutter_ble_peripheral.dart';
+import 'package:flutter_blue_plus/flutter_blue_plus.dart';
 
 import 'models/sale_ad.dart';
 
-enum AdsState { idle, discovering, connected }
+enum AdsState { idle, ready }
 
 class NearbyAdsService extends ChangeNotifier {
-  final NearbyService _nearby = NearbyService.getInstance();
+  final FlutterBlePeripheral _peripheral = FlutterBlePeripheral();
+  final FlutterBluePlus _bluetooth = FlutterBluePlus.instance;
 
   AdsState state = AdsState.idle;
-  List<NearbyDevice> peers = [];
-  NearbyDevice? _connectedDevice;
   final List<SaleAd> incomingAds = [];
+  StreamSubscription<List<ScanResult>>? _scanSub;
 
-  StreamSubscription? _peersSub;
+  static const String _serviceUuid = '0000feed-0000-1000-8000-00805f9b34fb';
 
   Future<void> initialize() async {
-    await _nearby.initialize();
-    final permissionsGranted = await _nearby.android?.requestPermissions();
-    if (!(permissionsGranted ?? false)) {
-      return;
-    }
-
-    final wifiEnabled = await _nearby.android?.checkWifiService();
-    if (!(wifiEnabled ?? false)) {
-      await _nearby.openServicesSettings();
-      return;
-    }
-
-    try {
-      await _nearby.discover();
-    } on NearbyServiceException catch (e) {
-      debugPrint('Discovery error: $e');
-      return;
-    }
-    _peersSub = _nearby.getPeersStream().listen((event) {
-      peers = event;
-      notifyListeners();
-    });
-    state = AdsState.discovering;
-    notifyListeners();
-  }
-
-  Future<void> connect(NearbyDevice device) async {
-    final res = await _nearby.connectById(device.info.id);
-    if (res || device.status.isConnected) {
-      _startChannel(device);
-    }
-  }
-
-  void _startChannel(NearbyDevice device) {
-    _connectedDevice = device;
-    _nearby.startCommunicationChannel(
-      NearbyCommunicationChannelData(
-        device.info.id,
-        messagesListener: NearbyServiceMessagesListener(
-          onData: _handleMessage,
-        ),
-      ),
-    );
-    state = AdsState.connected;
-    notifyListeners();
-  }
-
-  void _handleMessage(ReceivedNearbyMessage msg) {
-    msg.content.byType(
-      onTextRequest: (request) {
-        try {
-          final data = jsonDecode(request.value) as Map<String, dynamic>;
-          final ad = SaleAd.fromJson(data);
-          incomingAds.add(ad);
-          notifyListeners();
-          if (_connectedDevice != null) {
-            _nearby.send(
-              OutgoingNearbyMessage(
-                receiver: _connectedDevice!.info,
-                content: NearbyMessageTextResponse(id: request.id),
-              ),
+    _scanSub = _bluetooth.scanResults.listen((results) {
+      for (final result in results) {
+        final bytes =
+            result.advertisementData.serviceData[Guid(_serviceUuid)];
+        if (bytes != null) {
+          try {
+            final jsonStr = utf8.decode(bytes);
+            final ad = SaleAd.fromJson(
+              jsonDecode(jsonStr) as Map<String, dynamic>,
             );
-          }
-        } catch (_) {}
-      },
+            incomingAds.add(ad);
+            notifyListeners();
+          } catch (_) {}
+        }
+      }
+    });
+    await _bluetooth.startScan(withServices: [Guid(_serviceUuid)]);
+    state = AdsState.ready;
+    notifyListeners();
+  }
+
+  Future<void> publishAd(SaleAd ad) async {
+    final data = utf8.encode(jsonEncode(ad.toJson()));
+    await _peripheral.start(
+      advertiseData: AdvertiseData(
+        serviceDataUuid: _serviceUuid,
+        serviceData: data,
+        includeDeviceName: false,
+      ),
     );
   }
 
-  Future<void> sendAd(SaleAd ad) async {
-    if (_connectedDevice == null) return;
-    final jsonStr = jsonEncode(ad.toJson());
-    await _nearby.send(
-      OutgoingNearbyMessage(
-        receiver: _connectedDevice!.info,
-        content: NearbyMessageTextRequest.create(value: jsonStr),
-      ),
-    );
+  Future<void> _stop() async {
+    await _peripheral.stop();
+    await _bluetooth.stopScan();
+    await _scanSub?.cancel();
   }
 
   @override
   void dispose() {
+    unawaited(_stop());
+
     _peersSub?.cancel();
     unawaited(Future<void>(() async {
       await _nearby.stopDiscovery();
