@@ -101,8 +101,8 @@ class NearbyAdsService extends ChangeNotifier {
   @override
   void dispose() {
     _peersSub?.cancel();
-    unawaited(_nearby.stopDiscovery());
-    unawaited(_nearby.endCommunicationChannel());
+    unawaited(_nearby.stopDiscovery().then((_) {}));
+    unawaited(_nearby.endCommunicationChannel().then((_) {}));
     super.dispose();
   }
 }
