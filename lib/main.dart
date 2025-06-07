@@ -3,7 +3,7 @@ import 'package:flutter/material.dart';
 import 'models/announcement.dart';
 import 'nearby_ads_service.dart';
 import 'package:permission_handler/permission_handler.dart';
-import 'package:url_launcher/url_launcher.dart';
+import 'dart:convert';
 
 void main() {
   runApp(const MyApp());
@@ -232,14 +232,40 @@ class ReceivedPage extends StatelessWidget {
               : null,
           title: Text(a.title),
           subtitle: Text('${a.description}\nPrice: ${a.price}'),
-          trailing: a.phone != null
-              ? IconButton(
-                  icon: const Icon(Icons.phone),
-                  onPressed: () {
-                    launchUrl(Uri.parse('tel:${a.phone}'));
-                  },
-                )
-              : null,
+          onTap: () async {
+            final full = await service.fetchFullAnnouncement(a.id);
+            if (full == null) return;
+            showDialog(
+              context: context,
+              builder: (context) {
+                return AlertDialog(
+                  title: Text(full.title),
+                  content: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      if (full.imageUrl != null)
+                        Image.memory(base64Decode(full.imageUrl!)),
+                      Text(full.description),
+                      Text('Price: ${full.price}'),
+                    ],
+                  ),
+                  actions: [
+                    TextButton(
+                      onPressed: () => Navigator.pop(context),
+                      child: const Text('Fermer'),
+                    ),
+                    if (full.ip != null)
+                      TextButton(
+                        onPressed: () {
+                          service.voipService.call(full.ip!);
+                        },
+                        child: const Text('Appel Wi-Fi'),
+                      ),
+                  ],
+                );
+              },
+            );
+          },
         );
       }).toList(),
     );
