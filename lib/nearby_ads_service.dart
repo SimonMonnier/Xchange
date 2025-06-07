@@ -8,6 +8,7 @@ import 'package:flutter_blue_plus/flutter_blue_plus.dart';
 import 'package:permission_handler/permission_handler.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:device_info_plus/device_info_plus.dart';
+import 'package:flutter_p2p_connection/flutter_p2p_connection.dart';
 import 'dart:io';
 
 import 'models/announcement.dart';
@@ -22,6 +23,8 @@ enum AdsState { idle, ready, permissionDenied }
 
 class NearbyAdsService extends ChangeNotifier {
   final FlutterBlePeripheral _peripheral = FlutterBlePeripheral();
+  final FlutterP2pHost _host = FlutterP2pHost();
+  final FlutterP2pClient _client = FlutterP2pClient();
 
   AdsState state = AdsState.idle;
   final List<Announcement> receivedAnnouncements = [];
@@ -183,13 +186,43 @@ class NearbyAdsService extends ChangeNotifier {
         includeDeviceName: false,
       ),
     );
+    try {
+      await _host.initialize();
+      await _host.createGroup();
+    } catch (_) {
+      // ignore failures to start Wi-Fi Direct host
+    }
     notifyListeners();
   }
 
   Future<void> stopAdvertising() async {
     selected = null;
     await _peripheral.stop();
+    try {
+      await _host.removeGroup();
+    } catch (_) {
+      // ignore failures during cleanup
+    }
     notifyListeners();
+  }
+
+  Future<void> callAdvertiser(Announcement ad) async {
+    try {
+      await _client.initialize();
+      await _client.startScan((devices) async {
+        for (final device in devices) {
+          if (device.deviceName == ad.id) {
+            await _client.stopScan();
+            try {
+              await _client.connectWithDevice(device);
+            } catch (_) {}
+            break;
+          }
+        }
+      });
+    } catch (_) {
+      // ignore wifi direct errors
+    }
   }
 
   void _startScanning() {
