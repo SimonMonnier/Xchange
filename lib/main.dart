@@ -2,7 +2,8 @@ import 'package:flutter/material.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import 'wifi_aware.dart';
 
-final FlutterLocalNotificationsPlugin _notificationsPlugin = FlutterLocalNotificationsPlugin();
+final FlutterLocalNotificationsPlugin _notificationsPlugin =
+    FlutterLocalNotificationsPlugin();
 
 import 'dart:convert';
 
@@ -56,7 +57,8 @@ class _MyAppState extends State<MyApp> {
                     mainAxisAlignment: MainAxisAlignment.center,
                     children: [
                       const Text(
-                        'Permissions Bluetooth requises.\nVeuillez les activer dans les paramètres.',
+                        'Permissions Bluetooth requises.
+Veuillez les activer dans les paramètres.',
                         textAlign: TextAlign.center,
                       ),
                       const SizedBox(height: 16),
@@ -112,19 +114,6 @@ class Home extends StatelessWidget {
 class MyAdsPage extends StatefulWidget {
   final NearbyAdsService service;
   const MyAdsPage({super.key, required this.service});
-=======
-  @override
-  Widget build(BuildContext context) {
-    return MaterialApp(
-      title: 'WiFi Aware Demo',
-      theme: ThemeData(useMaterial3: true, colorScheme: ColorScheme.fromSeed(seedColor: Colors.deepPurple)),
-      home: const MyHomePage(),
-    );
-  }
-}
-
-class MyHomePage extends StatefulWidget {
-  const MyHomePage({super.key});
 
   @override
   State<MyAdsPage> createState() => _MyAdsPageState();
@@ -159,25 +148,6 @@ class _MyAdsPageState extends State<MyAdsPage> {
     _priceController.dispose();
     _imageController.dispose();
     super.dispose();
-=======
-class _MyHomePageState extends State<MyHomePage> {
-  final TextEditingController _controller = TextEditingController();
-
-  @override
-  void initState() {
-    super.initState();
-    const initializationSettings = InitializationSettings(
-      android: AndroidInitializationSettings('@mipmap/ic_launcher'),
-    );
-    _notificationsPlugin.initialize(initializationSettings);
-    WifiAware.messages.listen(_showNotification);
-  }
-
-  Future<void> _showNotification(String message) async {
-    const details = NotificationDetails(
-      android: AndroidNotificationDetails('wifi_aware', 'WiFi Aware'),
-    );
-    await _notificationsPlugin.show(0, 'Received message', message, details);
   }
 
   @override
@@ -191,7 +161,7 @@ class _MyHomePageState extends State<MyHomePage> {
                 .map(
                   (a) => ListTile(
                     title: Text(a.title),
-                    subtitle: Text('${a.description}\nPrice: ${a.price}'),
+                      subtitle: Text('${a.description}\nPrice: ${a.price}'),
                     leading: Radio<Announcement>(
                       value: a,
                       groupValue: selected,
@@ -229,7 +199,8 @@ class _MyHomePageState extends State<MyHomePage> {
               ),
               TextField(
                 controller: _imageController,
-                decoration: const InputDecoration(labelText: 'Image URL (optional)'),
+                decoration:
+                    const InputDecoration(labelText: 'Image URL (optional)'),
               ),
               const SizedBox(height: 8),
               Row(
@@ -256,7 +227,9 @@ class _MyHomePageState extends State<MyHomePage> {
                   final title = _titleController.text.trim();
                   final description = _descriptionController.text.trim();
                   final priceText = _priceController.text.trim();
-                  if (title.isNotEmpty && description.isNotEmpty && priceText.isNotEmpty) {
+                  if (title.isNotEmpty &&
+                      description.isNotEmpty &&
+                      priceText.isNotEmpty) {
                     final price = double.tryParse(priceText) ?? 0;
                     widget.service.addAnnouncement(
                       title: title,
@@ -315,33 +288,6 @@ class ReceivedPage extends StatelessWidget {
           ),
         );
       }).toList(),
-    return Scaffold(
-      appBar: AppBar(title: const Text('WiFi Aware Demo')),
-      body: Padding(
-        padding: const EdgeInsets.all(16),
-        child: Column(
-          children: [
-            TextField(
-              controller: _controller,
-              decoration: const InputDecoration(labelText: 'Message to publish'),
-            ),
-            const SizedBox(height: 16),
-            Row(
-              mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-              children: [
-                ElevatedButton(
-                  onPressed: () => WifiAware.startPublishing(_controller.text),
-                  child: const Text('Publish'),
-                ),
-                ElevatedButton(
-                  onPressed: WifiAware.startSubscribing,
-                  child: const Text('Subscribe'),
-                ),
-              ],
-            )
-          ],
-        ),
-      ),
     );
   }
 }
