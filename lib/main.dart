@@ -157,8 +157,10 @@ class _MyAdsPageState extends State<MyAdsPage> {
         ),
         Padding(
           padding: const EdgeInsets.all(8.0),
-          child: Column(
-            children: [
+          child: SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
               TextField(
                 controller: _titleController,
                 decoration: const InputDecoration(labelText: 'Title'),
@@ -211,6 +213,7 @@ class _MyAdsPageState extends State<MyAdsPage> {
               ),
             ],
           ),
+        ),
         ),
       ],
     );
