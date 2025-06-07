@@ -139,7 +139,8 @@ class _AdsPageState extends State<AdsPage> {
                   (ad) => ListTile(
                     title: Text(ad.title),
                     subtitle: Text(ad.description),
-                    trailing: Text('\\$${ad.price.toStringAsFixed(2)}'),
+                    // Display a dollar sign followed by the price.
+                    trailing: Text('\$${ad.price.toStringAsFixed(2)}'),
                   ),
                 ),
               ],
