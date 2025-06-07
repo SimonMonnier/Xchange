@@ -8,12 +8,15 @@ plugins {
 android {
     namespace = "com.example.xchange"
     compileSdk = flutter.compileSdkVersion
+    // Override the Flutter NDK version to satisfy plugin requirements.
     // WiFi Aware notifications require a newer NDK than Flutter's default
     ndkVersion = "27.0.12077973"
 
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_11
         targetCompatibility = JavaVersion.VERSION_11
+        // Enable desugaring to support Java 8+ language features required by
+        // certain plugins such as flutter_local_notifications.
         // Required for flutter_local_notifications
         isCoreLibraryDesugaringEnabled = true
     }
@@ -27,7 +30,7 @@ android {
         applicationId = "com.example.xchange"
         // You can update the following values to match your application needs.
         // For more information, see: https://flutter.dev/to/review-gradle-config.
-        minSdk = flutter.minSdkVersion
+        minSdk = 24
         targetSdk = flutter.targetSdkVersion
         versionCode = flutter.versionCode
         versionName = flutter.versionName
@@ -47,6 +50,7 @@ flutter {
 }
 
 dependencies {
+    // Required for core library desugaring.
     // Needed when core library desugaring is enabled
     coreLibraryDesugaring("com.android.tools:desugar_jdk_libs:2.1.4")
 }
