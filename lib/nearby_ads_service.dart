@@ -8,6 +8,7 @@ import 'package:flutter_blue_plus/flutter_blue_plus.dart';
 import 'package:permission_handler/permission_handler.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:device_info_plus/device_info_plus.dart';
+import 'package:location/location.dart';
 import 'dart:io';
 
 import 'models/announcement.dart';
@@ -97,7 +98,7 @@ class NearbyAdsService extends ChangeNotifier {
               .first
               .timeout(const Duration(seconds: 5));
 
-          _startScanning();
+          await _startScanning();
         } catch (_) {
           // Ignore failures to enable Bluetooth or start scanning
         }
@@ -232,7 +233,24 @@ class NearbyAdsService extends ChangeNotifier {
     notifyListeners();
   }
 
-  void _startScanning() {
+  Future<void> _startScanning() async {
+    if (Platform.isAndroid) {
+      try {
+        final location = Location();
+        bool enabled = await location.serviceEnabled();
+        if (!enabled) {
+          bool requested = await location.requestService();
+          if (!requested) {
+            debugPrint(
+                'Les services de localisation sont requis pour le balayage BLE.');
+            return;
+          }
+        }
+      } catch (e) {
+        debugPrint('Erreur lors de la vérification des services de localisation : $e');
+      }
+    }
+
     _scan();
     _scanTimer = Timer.periodic(const Duration(seconds: 2), (_) => _scan());
   }
