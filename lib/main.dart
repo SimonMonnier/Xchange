@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'models/announcement.dart';
 import 'nearby_ads_service.dart';
 import 'package:permission_handler/permission_handler.dart';
+import 'package:url_launcher/url_launcher.dart';
 
 void main() {
   runApp(const MyApp());
@@ -109,11 +110,19 @@ class MyAdsPage extends StatefulWidget {
 }
 
 class _MyAdsPageState extends State<MyAdsPage> {
-  final TextEditingController _controller = TextEditingController();
+  final TextEditingController _titleController = TextEditingController();
+  final TextEditingController _descriptionController = TextEditingController();
+  final TextEditingController _priceController = TextEditingController();
+  final TextEditingController _imageController = TextEditingController();
+  final TextEditingController _phoneController = TextEditingController();
 
   @override
   void dispose() {
-    _controller.dispose();
+    _titleController.dispose();
+    _descriptionController.dispose();
+    _priceController.dispose();
+    _imageController.dispose();
+    _phoneController.dispose();
     super.dispose();
   }
 
@@ -127,7 +136,8 @@ class _MyAdsPageState extends State<MyAdsPage> {
             children: widget.service.announcements
                 .map(
                   (a) => ListTile(
-                    title: Text(a.text),
+                    title: Text(a.title),
+                    subtitle: Text('${a.description}\nPrice: ${a.price}'),
                     leading: Radio<Announcement>(
                       value: a,
                       groupValue: selected,
@@ -148,22 +158,54 @@ class _MyAdsPageState extends State<MyAdsPage> {
         ),
         Padding(
           padding: const EdgeInsets.all(8.0),
-          child: Row(
+          child: Column(
             children: [
-              Expanded(
-                child: TextField(
-                  controller: _controller,
-                  decoration:
-                      const InputDecoration(labelText: 'New announcement'),
-                ),
+              TextField(
+                controller: _titleController,
+                decoration: const InputDecoration(labelText: 'Title'),
               ),
-              const SizedBox(width: 8),
+              TextField(
+                controller: _descriptionController,
+                decoration: const InputDecoration(labelText: 'Description'),
+              ),
+              TextField(
+                controller: _priceController,
+                decoration: const InputDecoration(labelText: 'Price'),
+                keyboardType: TextInputType.number,
+              ),
+              TextField(
+                controller: _imageController,
+                decoration: const InputDecoration(labelText: 'Image URL (optional)'),
+              ),
+              TextField(
+                controller: _phoneController,
+                decoration: const InputDecoration(labelText: 'Phone (optional)'),
+                keyboardType: TextInputType.phone,
+              ),
+              const SizedBox(height: 8),
               ElevatedButton(
                 onPressed: () {
-                  final text = _controller.text.trim();
-                  if (text.isNotEmpty) {
-                    widget.service.addAnnouncement(text);
-                    _controller.clear();
+                  final title = _titleController.text.trim();
+                  final description = _descriptionController.text.trim();
+                  final priceText = _priceController.text.trim();
+                  if (title.isNotEmpty && description.isNotEmpty && priceText.isNotEmpty) {
+                    final price = double.tryParse(priceText) ?? 0;
+                    widget.service.addAnnouncement(
+                      title: title,
+                      description: description,
+                      price: price,
+                      imageUrl: _imageController.text.trim().isEmpty
+                          ? null
+                          : _imageController.text.trim(),
+                      phone: _phoneController.text.trim().isEmpty
+                          ? null
+                          : _phoneController.text.trim(),
+                    );
+                    _titleController.clear();
+                    _descriptionController.clear();
+                    _priceController.clear();
+                    _imageController.clear();
+                    _phoneController.clear();
                   }
                 },
                 child: const Text('Add'),
@@ -183,9 +225,23 @@ class ReceivedPage extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return ListView(
-      children: service.receivedAnnouncements
-          .map((e) => ListTile(title: Text(e)))
-          .toList(),
+      children: service.receivedAnnouncements.map((a) {
+        return ListTile(
+          leading: a.imageUrl != null
+              ? Image.network(a.imageUrl!, width: 56, height: 56, fit: BoxFit.cover)
+              : null,
+          title: Text(a.title),
+          subtitle: Text('${a.description}\nPrice: ${a.price}'),
+          trailing: a.phone != null
+              ? IconButton(
+                  icon: const Icon(Icons.phone),
+                  onPressed: () {
+                    launchUrl(Uri.parse('tel:${a.phone}'));
+                  },
+                )
+              : null,
+        );
+      }).toList(),
     );
   }
 }
