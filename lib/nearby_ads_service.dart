@@ -48,7 +48,6 @@ class NearbyAdsService extends ChangeNotifier {
   final List<Announcement> announcements = [];
   Announcement? selected;
 
-  Timer? _scanTimer;
   StreamSubscription<List<ScanResult>>? _scanSub;
   Timer? _advertiseTimer;
   List<Uint8List> _advertiseChunks = [];
@@ -251,19 +250,9 @@ class NearbyAdsService extends ChangeNotifier {
       }
     }
 
-    _scan();
-    _scanTimer = Timer.periodic(const Duration(seconds: 2), (_) => _scan());
+    await FlutterBluePlus.startScan(continuousUpdates: true);
   }
 
-  void _scan() async {
-    // Restart scanning cleanly to avoid "could not find callback wrapper" errors
-    // when multiple scans overlap.
-    await FlutterBluePlus.stopScan();
-    await FlutterBluePlus.startScan(
-      timeout: const Duration(seconds: 2),
-      continuousUpdates: true,
-    );
-  }
 
   Future<void> _saveAnnouncements() async {
     final prefs = await SharedPreferences.getInstance();
@@ -285,7 +274,6 @@ class NearbyAdsService extends ChangeNotifier {
     await stopAdvertising();
     await FlutterBluePlus.stopScan();
     await _scanSub?.cancel();
-    _scanTimer?.cancel();
     _advertiseTimer?.cancel();
   }
 
