@@ -12,6 +12,25 @@ import 'dart:io';
 
 import 'models/announcement.dart';
 
+class _ChunkAssembly {
+  final int total;
+  int received = 0;
+  final List<List<int>?> chunks;
+
+  _ChunkAssembly(this.total) : chunks = List.filled(total, null);
+
+  bool add(int index, List<int> data) {
+    if (index >= total) return false;
+    if (chunks[index] == null) {
+      chunks[index] = data;
+      received++;
+    }
+    return received == total;
+  }
+
+  Uint8List merge() => Uint8List.fromList(chunks.expand((c) => c!).toList());
+}
+
 /// Represents the current initialization status of [NearbyAdsService].
 ///
 /// * [idle] - the service is not yet initialized.
@@ -30,6 +49,10 @@ class NearbyAdsService extends ChangeNotifier {
 
   Timer? _scanTimer;
   StreamSubscription<List<ScanResult>>? _scanSub;
+  Timer? _advertiseTimer;
+  List<Uint8List> _advertiseChunks = [];
+  int _advertiseIndex = 0;
+  final Map<int, _ChunkAssembly> _assemblies = {};
 
   static const int _manufacturerId = 0xFFFF;
 
@@ -63,18 +86,7 @@ class NearbyAdsService extends ChangeNotifier {
               final data =
                   result.advertisementData.manufacturerData[_manufacturerId];
               if (data != null) {
-                final jsonStr = utf8.decode(data);
-                try {
-                  final map = jsonDecode(jsonStr) as Map<String, dynamic>;
-                  final ad = Announcement.fromJson(map);
-                  if (receivedAnnouncements
-                      .every((existing) => existing.id != ad.id)) {
-                    receivedAnnouncements.add(ad);
-                    notifyListeners();
-                  }
-                } catch (_) {
-                  // ignore malformed data
-                }
+                _processData(data);
               }
             }
           });
@@ -107,18 +119,7 @@ class NearbyAdsService extends ChangeNotifier {
           final data =
               result.advertisementData.manufacturerData[_manufacturerId];
           if (data != null) {
-            final jsonStr = utf8.decode(data);
-            try {
-              final map = jsonDecode(jsonStr) as Map<String, dynamic>;
-              final ad = Announcement.fromJson(map);
-              if (receivedAnnouncements
-                  .every((existing) => existing.id != ad.id)) {
-                receivedAnnouncements.add(ad);
-                notifyListeners();
-              }
-            } catch (_) {
-              // ignore malformed data
-            }
+            _processData(data);
           }
         }
       });
@@ -141,7 +142,6 @@ class NearbyAdsService extends ChangeNotifier {
     required double price,
     String? imageUrl,
     String? imageBase64,
-    String? phone,
   }) async {
     final ad = Announcement(
       id: DateTime.now().millisecondsSinceEpoch.toString(),
@@ -150,7 +150,6 @@ class NearbyAdsService extends ChangeNotifier {
       price: price,
       imageUrl: imageUrl,
       imageBase64: imageBase64,
-      phone: phone,
     );
     announcements.add(ad);
     await _saveAnnouncements();
@@ -166,6 +165,11 @@ class NearbyAdsService extends ChangeNotifier {
     notifyListeners();
   }
 
+  void removeReceivedAnnouncement(Announcement ad) {
+    receivedAnnouncements.removeWhere((a) => a.id == ad.id);
+    notifyListeners();
+  }
+
   Future<void> selectAnnouncement(Announcement? ad) async {
     if (ad == null) {
       await stopAdvertising();
@@ -178,29 +182,85 @@ class NearbyAdsService extends ChangeNotifier {
     selected = ad;
     final jsonStr = jsonEncode(ad.toJson());
     final bytes = Uint8List.fromList(utf8.encode(jsonStr));
+    const payloadSize = 20;
+    final total = (bytes.length / payloadSize).ceil();
+    final idInt = int.tryParse(ad.id) ?? ad.id.hashCode;
+    _advertiseChunks = List.generate(total, (i) {
+      final start = i * payloadSize;
+      final end = (start + payloadSize > bytes.length)
+          ? bytes.length
+          : start + payloadSize;
+      final slice = bytes.sublist(start, end);
+      return Uint8List.fromList([
+        i,
+        total,
+        (idInt >> 24) & 0xFF,
+        (idInt >> 16) & 0xFF,
+        (idInt >> 8) & 0xFF,
+        idInt & 0xFF,
+        ...slice,
+      ]);
+    });
+    _advertiseIndex = 0;
+    _advertiseTimer?.cancel();
+    await _sendAdvertiseChunk();
+    _advertiseTimer =
+        Timer.periodic(const Duration(seconds: 2), (_) => _sendAdvertiseChunk());
+    notifyListeners();
+  }
+
+  Future<void> _sendAdvertiseChunk() async {
+    if (_advertiseChunks.isEmpty) return;
+    final data = _advertiseChunks[_advertiseIndex];
+    _advertiseIndex = (_advertiseIndex + 1) % _advertiseChunks.length;
     await _peripheral.start(
       advertiseData: AdvertiseData(
         manufacturerId: _manufacturerId,
-        manufacturerData: bytes,
+        manufacturerData: data,
         includeDeviceName: false,
       ),
     );
-    notifyListeners();
+  }
+
+  void _processData(Uint8List data) {
+    if (data.length < 6) return;
+    final index = data[0];
+    final total = data[1];
+    final id = (data[2] << 24) |
+        (data[3] << 16) |
+        (data[4] << 8) |
+        data[5];
+    final chunk = data.sublist(6);
+    final assembly = _assemblies.putIfAbsent(id, () => _ChunkAssembly(total));
+    if (assembly.add(index, chunk)) {
+      final bytes = assembly.merge();
+      _assemblies.remove(id);
+      try {
+        final map = jsonDecode(utf8.decode(bytes)) as Map<String, dynamic>;
+        final ad = Announcement.fromJson(map);
+        if (receivedAnnouncements.every((e) => e.id != ad.id)) {
+          receivedAnnouncements.add(ad);
+          notifyListeners();
+        }
+      } catch (_) {}
+    }
   }
 
   Future<void> stopAdvertising() async {
     selected = null;
     await _peripheral.stop();
+    _advertiseTimer?.cancel();
+    _advertiseChunks = [];
     notifyListeners();
   }
 
   void _startScanning() {
     _scan();
-    _scanTimer = Timer.periodic(const Duration(minutes: 1), (_) => _scan());
+    _scanTimer = Timer.periodic(const Duration(seconds: 2), (_) => _scan());
   }
 
   void _scan() async {
-    await FlutterBluePlus.startScan(timeout: const Duration(seconds: 10));
+    await FlutterBluePlus.startScan(timeout: const Duration(seconds: 2));
   }
 
   Future<void> _saveAnnouncements() async {
@@ -223,6 +283,7 @@ class NearbyAdsService extends ChangeNotifier {
     await FlutterBluePlus.stopScan();
     await _scanSub?.cancel();
     _scanTimer?.cancel();
+    _advertiseTimer?.cancel();
   }
 
   @override

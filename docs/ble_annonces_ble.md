@@ -42,7 +42,6 @@ class Announcement {
   final double price;
   final String? imageUrl;
   final String? imageBase64;
-  final String? phone;
 
   Announcement({
     required this.id,
@@ -51,7 +50,6 @@ class Announcement {
     required this.price,
     this.imageUrl,
     this.imageBase64,
-    this.phone,
   });
 
   Map<String, dynamic> toJson() => {
@@ -61,7 +59,6 @@ class Announcement {
         'price': price,
         'imageUrl': imageUrl,
         'imageBase64': imageBase64,
-        'phone': phone,
       };
 
   static Announcement fromJson(Map<String, dynamic> json) => Announcement(
@@ -71,7 +68,6 @@ class Announcement {
         price: (json['price'] as num).toDouble(),
         imageUrl: json['imageUrl'],
         imageBase64: json['imageBase64'],
-        phone: json['phone'],
       );
 }
 ```
@@ -144,8 +140,8 @@ class BluetoothService {
 
 ## 6. Interface utilisateur
 Prévoyez deux onglets :
-1. **Gestion des annonces** pour ajouter, modifier, supprimer et choisir l'annonce à diffuser (titre, description, prix, image et numéro de téléphone).
-2. **Annonces reçues** affichant les informations complètes et proposant un bouton d'appel lorsqu'un numéro est présent.
+1. **Gestion des annonces** pour ajouter, modifier, supprimer et choisir l'annonce à diffuser (titre, description, prix et image).
+2. **Annonces reçues** affichant les informations complètes.
 
 ## 7. Contrôle de l'état Bluetooth
 Vérifiez que Bluetooth est activé et demandez les permissions au démarrage :
