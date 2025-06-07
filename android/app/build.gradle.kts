@@ -8,7 +8,8 @@ plugins {
 android {
     namespace = "com.example.xchange"
     compileSdk = flutter.compileSdkVersion
-    ndkVersion = flutter.ndkVersion
+    // Override the Flutter NDK version to satisfy plugin requirements.
+    ndkVersion = "27.0.12077973"
 
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_11
