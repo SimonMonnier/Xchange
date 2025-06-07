@@ -8,11 +8,15 @@ plugins {
 android {
     namespace = "com.example.xchange"
     compileSdk = flutter.compileSdkVersion
-    ndkVersion = flutter.ndkVersion
+    // Override the Flutter NDK version to satisfy plugin requirements.
+    ndkVersion = "27.0.12077973"
 
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_11
         targetCompatibility = JavaVersion.VERSION_11
+        // Enable desugaring to support Java 8+ language features required by
+        // certain plugins such as flutter_local_notifications.
+        isCoreLibraryDesugaringEnabled = true
     }
 
     kotlinOptions {
@@ -41,4 +45,9 @@ android {
 
 flutter {
     source = "../.."
+}
+
+dependencies {
+    // Required for core library desugaring.
+    coreLibraryDesugaring("com.android.tools:desugar_jdk_libs:2.0.4")
 }
