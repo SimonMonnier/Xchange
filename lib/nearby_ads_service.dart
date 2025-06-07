@@ -34,57 +34,67 @@ class NearbyAdsService extends ChangeNotifier {
   static const int _manufacturerId = 0xFFFF;
 
   Future<void> initialize() async {
-    int sdkInt = 0;
-    if (Platform.isAndroid) {
-      final info = await DeviceInfoPlugin().androidInfo;
-      sdkInt = info.version.sdkInt;
-    }
+    AdsState targetState = AdsState.ready;
+    try {
+      int sdkInt = 0;
+      if (Platform.isAndroid) {
+        final info = await DeviceInfoPlugin().androidInfo;
+        sdkInt = info.version.sdkInt;
+      }
 
-    final permissions = [
-      Permission.bluetoothScan,
-      Permission.bluetoothAdvertise,
-      Permission.bluetoothConnect,
-    ];
-    if (sdkInt <= 30) {
-      permissions.add(Permission.locationWhenInUse);
-    }
+      final permissions = [
+        Permission.bluetoothScan,
+        Permission.bluetoothAdvertise,
+        Permission.bluetoothConnect,
+      ];
+      if (sdkInt <= 30) {
+        permissions.add(Permission.locationWhenInUse);
+      }
 
-    final statuses = await permissions.request();
-    if (statuses.values.any((s) => !s.isGranted)) {
-      state = AdsState.permissionDenied;
-      notifyListeners();
-      return;
-    }
+      final statuses = await permissions.request();
+      if (statuses.values.any((s) => !s.isGranted)) {
+        targetState = AdsState.permissionDenied;
+      } else {
+        await _loadAnnouncements();
 
-    await _loadAnnouncements();
-
-    _scanSub = FlutterBluePlus.scanResults.listen((results) {
-      for (final result in results) {
-        final data = result.advertisementData.manufacturerData[_manufacturerId];
-        if (data != null) {
-          final jsonStr = utf8.decode(data);
-          try {
-            final map = jsonDecode(jsonStr) as Map<String, dynamic>;
-            final ad = Announcement.fromJson(map);
-            if (receivedAnnouncements
-                .every((existing) => existing.id != ad.id)) {
-              receivedAnnouncements.add(ad);
-              notifyListeners();
+        try {
+          _scanSub = FlutterBluePlus.scanResults.listen((results) {
+            for (final result in results) {
+              final data =
+                  result.advertisementData.manufacturerData[_manufacturerId];
+              if (data != null) {
+                final jsonStr = utf8.decode(data);
+                try {
+                  final map = jsonDecode(jsonStr) as Map<String, dynamic>;
+                  final ad = Announcement.fromJson(map);
+                  if (receivedAnnouncements
+                      .every((existing) => existing.id != ad.id)) {
+                    receivedAnnouncements.add(ad);
+                    notifyListeners();
+                  }
+                } catch (_) {
+                  // ignore malformed data
+                }
+              }
             }
-          } catch (_) {
-            // ignore malformed data
-          }
+          });
+
+          await FlutterBluePlus.turnOn().timeout(const Duration(seconds: 5));
+          await FlutterBluePlus.adapterState
+              .where((s) => s == BluetoothAdapterState.on)
+              .first
+              .timeout(const Duration(seconds: 5));
+
+          _startScanning();
+        } catch (_) {
+          // Ignore failures to enable Bluetooth or start scanning
         }
       }
-    });
+    } catch (_) {
+      // unexpected error, stay in idle state
+    }
 
-    await FlutterBluePlus.turnOn();
-    await FlutterBluePlus.adapterState
-        .where((s) => s == BluetoothAdapterState.on)
-        .first;
-
-    _startScanning();
-    state = AdsState.ready;
+    state = targetState;
     notifyListeners();
   }
 
