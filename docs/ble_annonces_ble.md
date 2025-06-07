@@ -166,3 +166,6 @@ Future<void> checkBluetooth() async {
 ---
 
 Ce guide résume l'implémentation d'une application Flutter inspirée de Wi-Fi Aware mais utilisant BLE pour échanger des annonces sans connexion.
+Une extension de l'application permet désormais d'établir une connexion
+Wi-Fi Direct afin d'appeler directement le diffuseur d'une annonce lorsqu'on la
+sélectionne dans l'onglet **Received**.

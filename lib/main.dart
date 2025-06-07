@@ -240,6 +240,9 @@ class ReceivedPage extends StatelessWidget {
                   },
                 )
               : null,
+          onTap: () {
+            service.callAdvertiser(a);
+          },
         );
       }).toList(),
     );

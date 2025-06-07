@@ -26,3 +26,11 @@ only requested on Android versions prior to 12.
 ## BLE Advertising Example
 
 For a guide on building a simple application that exchanges detailed sale announcements (title, description, price, image and phone number) via Bluetooth Low Energy, see [docs/ble_annonces_ble.md](docs/ble_annonces_ble.md).
+
+## Wi-Fi Direct Calling
+
+The app can initiate a peer-to-peer call to the advertiser of a received announcement.
+When tapping an item in the **Received** tab, the application attempts to connect to
+the broadcaster using Wi-Fi Direct (via the `flutter_p2p_connection` plugin).
+If a compatible device is found, a direct connection is created without requiring
+an access point.
