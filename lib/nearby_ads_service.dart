@@ -22,6 +22,7 @@ class NearbyAdsService extends ChangeNotifier {
 
   Future<void> initialize() async {
     _scanSub = _bluetooth.scanResults.listen((results) {
+      if (!hasListeners) return;
       for (final result in results) {
         final bytes =
             result.advertisementData.serviceData[Guid(_serviceUuid)];
