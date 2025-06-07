@@ -28,3 +28,21 @@ encoded to base64 before advertising.
 ## BLE Advertising Example
 
 For a guide on building a simple application that exchanges detailed sale announcements (title, description, price and image) via Bluetooth Low Energy, see [docs/ble_annonces_ble.md](docs/ble_annonces_ble.md).
+=======
+## Android build configuration
+
+`flutter_local_notifications` requires enabling core library desugaring and a
+newer NDK. Update `android/app/build.gradle.kts` as follows:
+
+```kotlin
+android {
+    ndkVersion = "27.0.12077973"
+    compileOptions {
+        isCoreLibraryDesugaringEnabled = true
+    }
+}
+
+dependencies {
+    coreLibraryDesugaring("com.android.tools:desugar_jdk_libs:2.1.4")
+}
+```
