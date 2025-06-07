@@ -1,6 +1,5 @@
 import 'dart:async';
 import 'dart:convert';
-import 'dart:typed_data';
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter_ble_peripheral/flutter_ble_peripheral.dart';
@@ -12,7 +11,6 @@ enum AdsState { idle, ready }
 
 class NearbyAdsService extends ChangeNotifier {
   final FlutterBlePeripheral _peripheral = FlutterBlePeripheral();
-  final FlutterBluePlus _bluetooth = FlutterBluePlus.instance;
 
   AdsState state = AdsState.idle;
   final List<SaleAd> incomingAds = [];
@@ -21,7 +19,7 @@ class NearbyAdsService extends ChangeNotifier {
   static const String _serviceUuid = '0000feed-0000-1000-8000-00805f9b34fb';
 
   Future<void> initialize() async {
-    _scanSub = _bluetooth.scanResults.listen((results) {
+    _scanSub = FlutterBluePlus.scanResults.listen((results) {
       if (!hasListeners) return;
 
       for (final result in results) {
@@ -39,7 +37,7 @@ class NearbyAdsService extends ChangeNotifier {
         }
       }
     });
-    await _bluetooth.startScan(withServices: [Guid(_serviceUuid)]);
+    await FlutterBluePlus.startScan(withServices: [Guid(_serviceUuid)]);
     state = AdsState.ready;
     notifyListeners();
   }
@@ -57,23 +55,13 @@ class NearbyAdsService extends ChangeNotifier {
 
   Future<void> _stop() async {
     await _peripheral.stop();
-    await _bluetooth.stopScan();
+    await FlutterBluePlus.stopScan();
     await _scanSub?.cancel();
   }
 
   @override
   void dispose() {
-
     unawaited(_stop());
-
-    _peersSub?.cancel();
-    unawaited(Future<void>(() async {
-      await _nearby.stopDiscovery();
-    }));
-    unawaited(Future<void>(() async {
-      await _nearby.endCommunicationChannel();
-    }));
     super.dispose();
-    unawaited(_stop());
   }
 }
