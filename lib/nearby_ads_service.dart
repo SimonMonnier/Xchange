@@ -96,6 +96,43 @@ class NearbyAdsService extends ChangeNotifier {
 
     state = targetState;
     notifyListeners();
+    await _loadAnnouncements();
+
+    state = AdsState.ready;
+    notifyListeners();
+
+    try {
+      _scanSub = FlutterBluePlus.scanResults.listen((results) {
+        for (final result in results) {
+          final data =
+              result.advertisementData.manufacturerData[_manufacturerId];
+          if (data != null) {
+            final jsonStr = utf8.decode(data);
+            try {
+              final map = jsonDecode(jsonStr) as Map<String, dynamic>;
+              final ad = Announcement.fromJson(map);
+              if (receivedAnnouncements
+                  .every((existing) => existing.id != ad.id)) {
+                receivedAnnouncements.add(ad);
+                notifyListeners();
+              }
+            } catch (_) {
+              // ignore malformed data
+            }
+          }
+        }
+      });
+
+      await FlutterBluePlus.turnOn().timeout(const Duration(seconds: 5));
+      await FlutterBluePlus.adapterState
+          .where((s) => s == BluetoothAdapterState.on)
+          .first
+          .timeout(const Duration(seconds: 5));
+
+      _startScanning();
+    } catch (_) {
+      // Ignore failures to enable Bluetooth or start scanning
+    }
   }
 
   Future<void> addAnnouncement({
