@@ -11,6 +11,7 @@ import 'nearby_ads_service.dart';
 import 'package:permission_handler/permission_handler.dart';
 import 'package:url_launcher/url_launcher.dart';
 import 'package:image_picker/image_picker.dart';
+import 'package:image/image.dart' as img;
 
 void main() {
   runApp(const MyApp());
@@ -141,9 +142,13 @@ class _MyAdsPageState extends State<MyAdsPage> {
     final file = await picker.pickImage(source: ImageSource.gallery);
     if (file != null) {
       final bytes = await file.readAsBytes();
-      setState(() {
-        _imageBase64 = base64Encode(bytes);
-      });
+      final image = img.decodeImage(bytes);
+      if (image != null) {
+        final compressed = img.encodeJpg(image, quality: 60);
+        setState(() {
+          _imageBase64 = base64Encode(compressed);
+        });
+      }
     }
   }
 
