@@ -25,7 +25,10 @@ only requested on Android versions prior to 12.
 Local photos can be selected using the `image_picker` package so that they are
 served via Bluetooth without requiring an external URL.
 Wi‑Fi Direct support is implemented with the `flutter_p2p_connection` plugin so
-that a voice call can be initiated even without an access point.
+that a voice call can be initiated even without an access point. Before
+creating a Wi‑Fi Direct group, call `askP2pPermissions()` from the plugin to
+request the required `ACCESS_FINE_LOCATION`, `CHANGE_WIFI_STATE` and
+`NEARBY_WIFI_DEVICES` permissions on recent Android versions.
 
 ## BLE Advertising Example
 

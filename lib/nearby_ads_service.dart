@@ -195,6 +195,15 @@ class NearbyAdsService extends ChangeNotifier {
     if (selected != null) {
       await stopAdvertising();
     }
+    // Ensure Wi-Fi Direct permissions are granted before creating the group
+    if (!await _p2pHost.checkP2pPermissions()) {
+      await _p2pHost.askP2pPermissions();
+      if (!await _p2pHost.checkP2pPermissions()) {
+        state = AdsState.permissionDenied;
+        notifyListeners();
+        return;
+      }
+    }
     selected = ad;
     final hostState = await _p2pHost.createGroup(advertise: false);
     final updated = Announcement(
