@@ -1,12 +1,14 @@
 import 'dart:async';
 import 'dart:convert';
+import 'dart:typed_data';
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter_ble_peripheral/flutter_ble_peripheral.dart';
 import 'package:flutter_blue_plus/flutter_blue_plus.dart';
 import 'package:permission_handler/permission_handler.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
-import 'models/sale_ad.dart';
+import 'models/announcement.dart';
 
 enum AdsState { idle, ready }
 
@@ -14,10 +16,14 @@ class NearbyAdsService extends ChangeNotifier {
   final FlutterBlePeripheral _peripheral = FlutterBlePeripheral();
 
   AdsState state = AdsState.idle;
-  final List<SaleAd> incomingAds = [];
+  final List<String> receivedAnnouncements = [];
+  final List<Announcement> announcements = [];
+  Announcement? selected;
+
+  Timer? _scanTimer;
   StreamSubscription<List<ScanResult>>? _scanSub;
 
-  static const String _serviceUuid = '0000feed-0000-1000-8000-00805f9b34fb';
+  static const int _manufacturerId = 0xFFFF;
 
   Future<void> initialize() async {
     final statuses = await [
@@ -30,48 +36,106 @@ class NearbyAdsService extends ChangeNotifier {
       return;
     }
 
-    _scanSub = FlutterBluePlus.scanResults.listen((results) {
-      if (!hasListeners) return;
+    await _loadAnnouncements();
 
+    _scanSub = FlutterBluePlus.scanResults.listen((results) {
       for (final result in results) {
-        final bytes =
-            result.advertisementData.serviceData[Guid(_serviceUuid)];
-        if (bytes != null) {
-          try {
-            final jsonStr = utf8.decode(bytes);
-            final ad = SaleAd.fromJson(
-              jsonDecode(jsonStr) as Map<String, dynamic>,
-            );
-            incomingAds.add(ad);
+        final data = result.advertisementData.manufacturerData[_manufacturerId];
+        if (data != null) {
+          final text = utf8.decode(data);
+          if (!receivedAnnouncements.contains(text)) {
+            receivedAnnouncements.add(text);
             notifyListeners();
-          } catch (_) {}
+          }
         }
       }
     });
+
     await FlutterBluePlus.turnOn();
     await FlutterBluePlus.adapterState
-        .where((state) => state == BluetoothAdapterState.on)
+        .where((s) => s == BluetoothAdapterState.on)
         .first;
-    await FlutterBluePlus.startScan(withServices: [Guid(_serviceUuid)]);
+
+    _startScanning();
     state = AdsState.ready;
     notifyListeners();
   }
 
-  Future<void> publishAd(SaleAd ad) async {
-    final data = utf8.encode(jsonEncode(ad.toJson()));
+  Future<void> addAnnouncement(String text) async {
+    final ad = Announcement(
+      id: DateTime.now().millisecondsSinceEpoch.toString(),
+      text: text,
+    );
+    announcements.add(ad);
+    await _saveAnnouncements();
+    notifyListeners();
+  }
+
+  Future<void> removeAnnouncement(Announcement ad) async {
+    if (selected?.id == ad.id) {
+      await stopAdvertising();
+    }
+    announcements.removeWhere((a) => a.id == ad.id);
+    await _saveAnnouncements();
+    notifyListeners();
+  }
+
+  Future<void> selectAnnouncement(Announcement? ad) async {
+    if (ad == null) {
+      await stopAdvertising();
+      return;
+    }
+    await startAdvertising(ad);
+  }
+
+  Future<void> startAdvertising(Announcement ad) async {
+    selected = ad;
+    final bytes = Uint8List.fromList(utf8.encode(ad.text));
     await _peripheral.start(
       advertiseData: AdvertiseData(
-        serviceDataUuid: _serviceUuid,
-        serviceData: data,
+        manufacturerId: _manufacturerId,
+        manufacturerData: bytes,
         includeDeviceName: false,
       ),
     );
+    notifyListeners();
+  }
+
+  Future<void> stopAdvertising() async {
+    selected = null;
+    await _peripheral.stop();
+    notifyListeners();
+  }
+
+  void _startScanning() {
+    _scan();
+    _scanTimer = Timer.periodic(const Duration(minutes: 1), (_) => _scan());
+  }
+
+  void _scan() async {
+    await FlutterBluePlus.startScan(timeout: const Duration(seconds: 10));
+  }
+
+  Future<void> _saveAnnouncements() async {
+    final prefs = await SharedPreferences.getInstance();
+    final json = jsonEncode(announcements.map((e) => e.toJson()).toList());
+    await prefs.setString('announcements', json);
+  }
+
+  Future<void> _loadAnnouncements() async {
+    final prefs = await SharedPreferences.getInstance();
+    final json = prefs.getString('announcements');
+    if (json == null) return;
+    final List data = jsonDecode(json);
+    announcements
+        .addAll(data.map((e) => Announcement.fromJson(e)).toList());
   }
 
   Future<void> _stop() async {
-    await _peripheral.stop();
+    await stopAdvertising();
     await FlutterBluePlus.stopScan();
     await _scanSub?.cancel();
+    _scanTimer?.cancel();
   }
 
   @override

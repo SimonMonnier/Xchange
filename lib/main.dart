@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
 
-import 'models/sale_ad.dart';
+import 'models/announcement.dart';
 import 'nearby_ads_service.dart';
 
 void main() {
@@ -15,22 +15,33 @@ class MyApp extends StatefulWidget {
 }
 
 class _MyAppState extends State<MyApp> {
-  final NearbyAdsService service = NearbyAdsService();
+  final NearbyAdsService _service = NearbyAdsService();
+
+  @override
+  void initState() {
+    super.initState();
+    _service.initialize();
+  }
 
   @override
   void dispose() {
-    service.dispose();
+    _service.dispose();
     super.dispose();
   }
 
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
-      title: 'Nearby Ads',
+      title: 'BLE Announcements',
       home: AnimatedBuilder(
-        animation: service,
+        animation: _service,
         builder: (context, _) {
-          return Home(service: service);
+          if (_service.state != AdsState.ready) {
+            return const Scaffold(
+              body: Center(child: CircularProgressIndicator()),
+            );
+          }
+          return Home(service: _service);
         },
       ),
     );
@@ -39,99 +50,119 @@ class _MyAppState extends State<MyApp> {
 
 class Home extends StatelessWidget {
   final NearbyAdsService service;
-
   const Home({super.key, required this.service});
 
   @override
   Widget build(BuildContext context) {
-    switch (service.state) {
-      case AdsState.idle:
-        return Scaffold(
-          appBar: AppBar(title: const Text('Nearby Ads')),
-          body: Center(
-            child: ElevatedButton(
-              onPressed: service.initialize,
-              child: const Text('Start'),
-            ),
+    return DefaultTabController(
+      length: 2,
+      child: Scaffold(
+        appBar: AppBar(
+          title: const Text('BLE Announcements'),
+          bottom: const TabBar(
+            tabs: [
+              Tab(text: 'My Ads'),
+              Tab(text: 'Received'),
+            ],
           ),
-        );
-      case AdsState.ready:
-        return AdsPage(service: service);
-    }
-  }
-}
-
-class AdsPage extends StatefulWidget {
-  final NearbyAdsService service;
-
-  const AdsPage({super.key, required this.service});
-
-  @override
-  State<AdsPage> createState() => _AdsPageState();
-}
-
-class _AdsPageState extends State<AdsPage> {
-  final _titleController = TextEditingController();
-  final _descriptionController = TextEditingController();
-  final _priceController = TextEditingController();
-
-  @override
-  Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: AppBar(title: const Text('Sale Ads')),
-      body: Column(
-        children: [
-          Padding(
-            padding: const EdgeInsets.all(8),
-            child: Column(
-              children: [
-                TextField(
-                  controller: _titleController,
-                  decoration: const InputDecoration(labelText: 'Title'),
-                ),
-                TextField(
-                  controller: _descriptionController,
-                  decoration: const InputDecoration(labelText: 'Description'),
-                ),
-                TextField(
-                  controller: _priceController,
-                  decoration: const InputDecoration(labelText: 'Price'),
-                  keyboardType: TextInputType.number,
-                ),
-                ElevatedButton(
-                  onPressed: () {
-                    final ad = SaleAd(
-                      id: DateTime.now().millisecondsSinceEpoch.toString(),
-                      title: _titleController.text,
-                      description: _descriptionController.text,
-                      price: double.tryParse(_priceController.text) ?? 0,
-                    );
-                    widget.service.publishAd(ad);
-                  },
-                  child: const Text('Send Ad'),
-                ),
-              ],
-            ),
-          ),
-          const Divider(),
-          const Text('Received Ads'),
-          Expanded(
-            child: ListView(
-              children: [
-                ...widget.service.incomingAds.map(
-                  (ad) => ListTile(
-                    title: Text(ad.title),
-                    subtitle: Text(ad.description),
-                    // Display a dollar sign followed by the price.
-                    trailing: Text('\$${ad.price.toStringAsFixed(2)}'),
-                  ),
-                ),
-              ],
-            ),
-          ),
-        ],
+        ),
+        body: TabBarView(
+          children: [
+            MyAdsPage(service: service),
+            ReceivedPage(service: service),
+          ],
+        ),
       ),
     );
   }
 }
 
+class MyAdsPage extends StatefulWidget {
+  final NearbyAdsService service;
+  const MyAdsPage({super.key, required this.service});
+
+  @override
+  State<MyAdsPage> createState() => _MyAdsPageState();
+}
+
+class _MyAdsPageState extends State<MyAdsPage> {
+  final TextEditingController _controller = TextEditingController();
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final selected = widget.service.selected;
+    return Column(
+      children: [
+        Expanded(
+          child: ListView(
+            children: widget.service.announcements
+                .map(
+                  (a) => ListTile(
+                    title: Text(a.text),
+                    leading: Radio<Announcement>(
+                      value: a,
+                      groupValue: selected,
+                      onChanged: (val) {
+                        widget.service.selectAnnouncement(val);
+                      },
+                    ),
+                    trailing: IconButton(
+                      icon: const Icon(Icons.delete),
+                      onPressed: () {
+                        widget.service.removeAnnouncement(a);
+                      },
+                    ),
+                  ),
+                )
+                .toList(),
+          ),
+        ),
+        Padding(
+          padding: const EdgeInsets.all(8.0),
+          child: Row(
+            children: [
+              Expanded(
+                child: TextField(
+                  controller: _controller,
+                  decoration:
+                      const InputDecoration(labelText: 'New announcement'),
+                ),
+              ),
+              const SizedBox(width: 8),
+              ElevatedButton(
+                onPressed: () {
+                  final text = _controller.text.trim();
+                  if (text.isNotEmpty) {
+                    widget.service.addAnnouncement(text);
+                    _controller.clear();
+                  }
+                },
+                child: const Text('Add'),
+              ),
+            ],
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+class ReceivedPage extends StatelessWidget {
+  final NearbyAdsService service;
+  const ReceivedPage({super.key, required this.service});
+
+  @override
+  Widget build(BuildContext context) {
+    return ListView(
+      children: service.receivedAnnouncements
+          .map((e) => ListTile(title: Text(e)))
+          .toList(),
+    );
+  }
+}
