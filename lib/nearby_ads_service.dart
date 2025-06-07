@@ -240,6 +240,8 @@ class NearbyAdsService extends ChangeNotifier {
     // when multiple scans overlap.
     await FlutterBluePlus.stopScan();
     await FlutterBluePlus.startScan(
+
+      timeout: const Duration(seconds: 2),
       continuousUpdates: true,
     );
   }
