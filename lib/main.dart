@@ -11,6 +11,7 @@ import 'package:uuid/uuid.dart';
 import 'package:flutter_webrtc/flutter_webrtc.dart';
 import 'package:flutter_p2p_connection/flutter_p2p_connection.dart';
 import 'package:path_provider/path_provider.dart';
+import 'package:image_picker/image_picker.dart';
 
 class Announcement {
   final String id;
@@ -19,6 +20,7 @@ class Announcement {
   final String broadcasterId;
   final String broadcasterName;
   final String deviceAddress;
+  final String? imageBase64;
 
   Announcement({
     required this.id,
@@ -27,6 +29,7 @@ class Announcement {
     required this.broadcasterId,
     required this.broadcasterName,
     required this.deviceAddress,
+    this.imageBase64,
   });
 
   Map<String, dynamic> toJson() => {
@@ -36,6 +39,7 @@ class Announcement {
     'broadcasterId': broadcasterId,
     'broadcasterName': broadcasterName,
     'deviceAddress': deviceAddress,
+    'imageBase64': imageBase64,
     'type': 'announcement',
   };
 
@@ -46,6 +50,7 @@ class Announcement {
     broadcasterId: json['broadcasterId'],
     broadcasterName: json['broadcasterName'],
     deviceAddress: json['deviceAddress'],
+    imageBase64: json['imageBase64'],
   );
 }
 
@@ -542,6 +547,14 @@ class TweetLikeAnnouncement extends StatelessWidget {
                   ),
                   const SizedBox(height: 4),
                   Text(announcement.description),
+                  if (announcement.imageBase64 != null)
+                    Padding(
+                      padding: const EdgeInsets.only(top: 8.0),
+                      child: Image.memory(
+                        base64Decode(announcement.imageBase64!),
+                        height: 150,
+                      ),
+                    ),
                   const SizedBox(height: 8),
                   if (isCreated)
                     IconButton(
@@ -612,6 +625,17 @@ class _CreateAnnouncementScreenState extends State<CreateAnnouncementScreen> {
   final _descriptionController = TextEditingController();
   final _titleFocusNode = FocusNode();
   final _descriptionFocusNode = FocusNode();
+  final ImagePicker _picker = ImagePicker();
+  XFile? _imageFile;
+
+  Future<void> _pickImage(ImageSource source) async {
+    final picked = await _picker.pickImage(source: source);
+    if (picked != null) {
+      setState(() {
+        _imageFile = picked;
+      });
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -634,6 +658,30 @@ class _CreateAnnouncementScreenState extends State<CreateAnnouncementScreen> {
               decoration: const InputDecoration(labelText: 'Description'),
             ),
             const SizedBox(height: 16),
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+              children: [
+                ElevatedButton.icon(
+                  onPressed: () => _pickImage(ImageSource.gallery),
+                  icon: const Icon(Icons.photo),
+                  label: const Text('Galerie'),
+                ),
+                ElevatedButton.icon(
+                  onPressed: () => _pickImage(ImageSource.camera),
+                  icon: const Icon(Icons.camera_alt),
+                  label: const Text('Camera'),
+                ),
+              ],
+            ),
+            if (_imageFile != null)
+              Padding(
+                padding: const EdgeInsets.only(top: 16.0),
+                child: Image.file(
+                  File(_imageFile!.path),
+                  height: 150,
+                ),
+              ),
+            const SizedBox(height: 16),
             Consumer<AnnouncementProvider>(
               builder: (context, provider, _) => ElevatedButton(
                 onPressed: provider.isInitialized && provider.isServerStarted
@@ -648,6 +696,9 @@ class _CreateAnnouncementScreenState extends State<CreateAnnouncementScreen> {
                           deviceAddress: provider.peers.isNotEmpty
                               ? provider.peers[0].id
                               : '',
+                          imageBase64: _imageFile != null
+                              ? base64Encode(await _imageFile!.readAsBytes())
+                              : null,
                         );
                         provider.addCreatedAnnouncement(announcement);
                         Navigator.pop(context);
