@@ -179,6 +179,8 @@ class AnnouncementProvider with ChangeNotifier {
                   data['sdpMLineIndex'],
                 ),
               );
+            } else if (data['type'] == 'delete_announcement') {
+              deleteReceivedAnnouncement(data['id']);
             }
           } catch (e) {
             print('Erreur lors du traitement du message reçu : $e');
@@ -258,6 +260,7 @@ class AnnouncementProvider with ChangeNotifier {
   void deleteCreatedAnnouncement(String id) {
     _createdAnnouncements.removeWhere((ann) => ann.id == id);
     notifyListeners();
+    _broadcastDeletion(id);
   }
 
   void deleteReceivedAnnouncement(String id) {
@@ -275,6 +278,17 @@ class AnnouncementProvider with ChangeNotifier {
       print('Annonce broadcastée');
     } catch (e) {
       print('Erreur lors de la diffusion : $e');
+    }
+  }
+
+  void _broadcastDeletion(String id) async {
+    if (!_isInitialized || !_isServerStarted) {
+      return;
+    }
+    try {
+      await p2p.broadcastText(jsonEncode({'type': 'delete_announcement', 'id': id}));
+    } catch (e) {
+      print('Erreur lors de la diffusion de la suppression : $e');
     }
   }
 
@@ -550,9 +564,19 @@ class TweetLikeAnnouncement extends StatelessWidget {
                   if (announcement.imageBase64 != null)
                     Padding(
                       padding: const EdgeInsets.only(top: 8.0),
-                      child: Image.memory(
-                        base64Decode(announcement.imageBase64!),
-                        height: 150,
+                      child: GestureDetector(
+                        onTap: () => showDialog(
+                          context: context,
+                          builder: (_) => Dialog(
+                            child: Image.memory(
+                              base64Decode(announcement.imageBase64!),
+                            ),
+                          ),
+                        ),
+                        child: Image.memory(
+                          base64Decode(announcement.imageBase64!),
+                          height: 150,
+                        ),
                       ),
                     ),
                   const SizedBox(height: 8),
