@@ -5,6 +5,8 @@ import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import 'package:permission_handler/permission_handler.dart';
+import 'package:device_info_plus/device_info_plus.dart';
+import 'dart:io';
 import 'package:uuid/uuid.dart';
 import 'package:flutter_webrtc/flutter_webrtc.dart';
 import 'package:flutter_p2p_connection/flutter_p2p_connection.dart';
@@ -80,15 +82,24 @@ class AnnouncementProvider with ChangeNotifier {
     final directory = await getApplicationDocumentsDirectory();
     _downloadPath = directory.path;
 
-    // Demander les permissions
-    final statuses = await [
+    // Demander les permissions selon la version Android
+    final deviceInfo = DeviceInfoPlugin();
+    final androidInfo = Platform.isAndroid ? await deviceInfo.androidInfo : null;
+    final sdkInt = androidInfo?.version.sdkInt ?? 0;
+
+    final permissions = <Permission>[
       Permission.location,
-      Permission.nearbyWifiDevices,
       Permission.microphone,
       Permission.bluetoothScan,
       Permission.bluetoothConnect,
       Permission.notification,
-    ].request();
+    ];
+
+    if (sdkInt >= 33) {
+      permissions.add(Permission.nearbyWifiDevices);
+    }
+
+    final statuses = await permissions.request();
 
     // Log precisely which permissions were not granted
     statuses.forEach((permission, status) {
@@ -97,8 +108,12 @@ class AnnouncementProvider with ChangeNotifier {
       }
     });
 
+    final hasNearbyPermission = sdkInt >= 33
+        ? statuses[Permission.nearbyWifiDevices]!.isGranted
+        : true;
+
     if (!statuses[Permission.location]!.isGranted ||
-        !statuses[Permission.nearbyWifiDevices]!.isGranted ||
+        !hasNearbyPermission ||
         !statuses[Permission.microphone]!.isGranted ||
         !statuses[Permission.bluetoothScan]!.isGranted ||
         !statuses[Permission.bluetoothConnect]!.isGranted ||
