@@ -114,10 +114,7 @@ class AnnouncementProvider with ChangeNotifier {
       );
       try {
         // Initialiser la connexion P2P
-        bool initialized = await p2p.initialize();
-        if (!initialized) {
-          throw Exception('Échec de l\'initialisation de P2P');
-        }
+        p2p.initialize();
 
         // Créer le groupe Wi-Fi Direct
         await p2p.createGroup();
