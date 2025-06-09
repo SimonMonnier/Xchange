@@ -43,7 +43,13 @@
 	</array>
 	<key>CADisableMinimumFrameDurationOnPhone</key>
 	<true/>
-	<key>UIApplicationSupportsIndirectInputEvents</key>
-	<true/>
+        <key>UIApplicationSupportsIndirectInputEvents</key>
+        <true/>
+        <key>NSLocationWhenInUseUsageDescription</key>
+        <string>Location access is required to discover nearby devices.</string>
+        <key>NSLocationAlwaysAndWhenInUseUsageDescription</key>
+        <string>Location access is required to discover nearby devices.</string>
+        <key>NSMicrophoneUsageDescription</key>
+        <string>Microphone access is required for voice communication.</string>
 </dict>
 </plist>
