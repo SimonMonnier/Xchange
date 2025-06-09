@@ -90,6 +90,13 @@ class AnnouncementProvider with ChangeNotifier {
       Permission.notification,
     ].request();
 
+    // Log precisely which permissions were not granted
+    statuses.forEach((permission, status) {
+      if (!status.isGranted) {
+        print('Permission manquante: $permission');
+      }
+    });
+
     if (!statuses[Permission.location]!.isGranted ||
         !statuses[Permission.nearbyWifiDevices]!.isGranted ||
         !statuses[Permission.microphone]!.isGranted ||
