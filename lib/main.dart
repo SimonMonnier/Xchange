@@ -154,8 +154,8 @@ class AnnouncementProvider with ChangeNotifier {
     if (sdkInt >= 33 && !(await Permission.nearbyWifiDevices.isGranted)) {
       developer.log('NEARBY_WIFI_DEVICES permission not granted');
       _showErrorSnackBar(
-        'Please grant Nearby Wi-Fi Devices permission to use Wi-Fi Direct.',
-        actionLabel: 'Settings',
+        'Veuillez autoriser l\'accès aux appareils Wi-Fi à proximité pour utiliser Wi-Fi Direct.',
+        actionLabel: 'Paramètres',
         action: () => openAppSettings(),
       );
       _completer?.complete();
@@ -169,10 +169,10 @@ class AnnouncementProvider with ChangeNotifier {
     );
 
     if (!allPermissionsGranted) {
-      developer.log('Required permissions not granted');
+      developer.log('Certaines permissions requises ne sont pas accordées');
       _showErrorSnackBar(
-        'Please grant all necessary permissions (location, microphone, nearby devices, etc.) to use app features.',
-        actionLabel: 'Settings',
+        'Veuillez accorder toutes les permissions nécessaires (localisation, microphone, etc.) pour utiliser les fonctionnalités de l\'application.',
+        actionLabel: 'Paramètres',
         action: () => openAppSettings(),
       );
       _completer?.complete();
@@ -186,18 +186,24 @@ class AnnouncementProvider with ChangeNotifier {
         'isTetheringEnabled',
       );
       if (!(isTetheringEnabled as bool)) {
-        developer.log('Tethering is disabled');
+        developer.log('Le tethering est désactivé');
         _showErrorSnackBar(
-          'Tethering is disabled. Please enable it in Wi-Fi settings.',
-          actionLabel: 'Open Tethering Settings',
+          'Le tethering est désactivé. Veuillez l\'activer dans les paramètres Wi-Fi.',
+          actionLabel: 'Ouvrir les paramètres de tethering',
           action: () => _channel.invokeMethod('openTetheringSettings'),
         );
         _completer?.complete();
         return;
       }
     } catch (e) {
-      developer.log('Error enabling Wi-Fi/Bluetooth/Tethering: $e');
-      _showErrorSnackBar('Please enable Wi-Fi, Bluetooth, and tethering.');
+      developer.log(
+        'Erreur lors de l\'activation du Wi-Fi/Bluetooth/Tethering : $e',
+      );
+      _showErrorSnackBar(
+        'Veuillez activer le Wi-Fi, le Bluetooth et le tethering dans les paramètres.',
+        actionLabel: 'Ouvrir les paramètres Wi-Fi',
+        action: () => _channel.invokeMethod('openWifiSettings'),
+      );
       _completer?.complete();
       return;
     }
@@ -205,13 +211,13 @@ class AnnouncementProvider with ChangeNotifier {
     int retries = 3;
     while (retries > 0 && !_isInitialized) {
       developer.log(
-        'Attempting Wi-Fi Direct initialization, retries left: $retries',
+        'Tentative d\'initialisation du Wi-Fi Direct, tentatives restantes : $retries',
       );
       try {
         p2p.initialize();
         await createGroupWithRetry();
         _isServerStarted = true;
-        developer.log('P2P group created successfully');
+        developer.log('Groupe P2P créé avec succès');
 
         // Configurer les listeners pour les messages et les clients
         p2p.streamReceivedTexts().listen(
@@ -239,11 +245,11 @@ class AnnouncementProvider with ChangeNotifier {
                 deleteReceivedAnnouncement(data['id']);
               }
             } catch (e) {
-              developer.log('Error processing received message: $e');
+              developer.log('Erreur lors du traitement du message reçu : $e');
             }
           },
           onError: (e) {
-            developer.log('Error in streamReceivedTexts: $e');
+            developer.log('Erreur dans streamReceivedTexts : $e');
           },
         );
 
@@ -256,7 +262,7 @@ class AnnouncementProvider with ChangeNotifier {
             }
           },
           onError: (e) {
-            developer.log('Error in streamClientList: $e');
+            developer.log('Erreur dans streamClientList : $e');
           },
         );
 
@@ -264,12 +270,12 @@ class AnnouncementProvider with ChangeNotifier {
         startNetworkMonitoring();
         _completer?.complete();
       } catch (e) {
-        developer.log('Initialization error: $e');
+        developer.log('Erreur d\'initialisation : $e');
         retries--;
         if (retries == 0) {
           _showErrorSnackBar(
-            'Unable to activate Wi-Fi Direct. Please check Wi-Fi, Bluetooth, and tethering settings.',
-            actionLabel: 'Open Tethering Settings',
+            'Impossible d\'activer le Wi-Fi Direct. Veuillez vérifier les paramètres Wi-Fi, Bluetooth et tethering.',
+            actionLabel: 'Ouvrir les paramètres de tethering',
             action: () => _channel.invokeMethod('openTetheringSettings'),
           );
         }
@@ -281,48 +287,85 @@ class AnnouncementProvider with ChangeNotifier {
 
   Future<void> createGroupWithRetry() async {
     try {
+      // Tenter avec flutter_p2p_connection d'abord
       await p2p.createGroup();
       _isServerStarted = true;
-      developer.log('P2P group created successfully');
+      developer.log('Groupe P2P créé avec succès via flutter_p2p_connection');
     } catch (e) {
-      developer.log('Failed to create P2P group: $e');
-      _isServerStarted = false;
-      if (e.toString().contains('ERROR_TETHERING_DISALLOWED')) {
-        _showErrorSnackBar(
-          'Tethering is not allowed. Please enable it in Wi-Fi settings.',
-          actionLabel: 'Open Tethering Settings',
-          action: () => _channel.invokeMethod('openTetheringSettings'),
+      developer.log('Échec avec flutter_p2p_connection : $e');
+      // Solution de secours : utiliser WifiP2pManager natif
+      try {
+        final success = await _channel.invokeMethod('createWifiP2pGroup');
+        if (success == true) {
+          _isServerStarted = true;
+          developer.log('Groupe P2P créé avec succès via WifiP2pManager natif');
+        } else {
+          throw Exception('Échec de la création du groupe P2P natif');
+        }
+      } catch (nativeError) {
+        developer.log('Échec avec WifiP2pManager natif : $nativeError');
+        _isServerStarted = false;
+        if (e.toString().contains('ERROR_TETHERING_DISALLOWED') ||
+            nativeError.toString().contains('WIFI_P2P_ERROR')) {
+          _showErrorSnackBar(
+            'Le tethering n\'est pas autorisé. Veuillez l\'activer dans les paramètres Wi-Fi.',
+            actionLabel: 'Ouvrir les paramètres de tethering',
+            action: () => _channel.invokeMethod('openTetheringSettings'),
+          );
+        } else {
+          _showErrorSnackBar(
+            'Échec de la création du groupe Wi-Fi Direct. Veuillez vérifier les paramètres Wi-Fi et Bluetooth.',
+            actionLabel: 'Ouvrir les paramètres Wi-Fi',
+            action: () => _channel.invokeMethod('openWifiSettings'),
+          );
+        }
+        throw nativeError;
+      }
+    }
+  }
+
+  Future<void> _ensureWifiAndBluetoothEnabled() async {
+    try {
+      // Activer le Wi-Fi
+      final wifiResult = await _channel.invokeMethod('enableWifi');
+      if (wifiResult != true) {
+        throw Exception('Échec de l\'activation du Wi-Fi : $wifiResult');
+      }
+      developer.log('Wi-Fi activé avec succès');
+
+      // Activer le Bluetooth
+      final bluetoothResult = await _channel.invokeMethod('enableBluetooth');
+      if (bluetoothResult != true) {
+        throw Exception(
+          'Échec de l\'activation du Bluetooth : $bluetoothResult',
         );
-      } else {
+      }
+      developer.log('Bluetooth activé avec succès');
+    } catch (e) {
+      developer.log('Erreur lors de l\'activation du Wi-Fi/Bluetooth : $e');
+      if (e.toString().contains('WIFI_ENABLE_FAILED') ||
+          e.toString().contains('WIFI_SECURITY_ERROR')) {
         _showErrorSnackBar(
-          'Failed to create Wi-Fi Direct group. Please ensure Wi-Fi and Bluetooth are enabled.',
+          'Impossible d\'activer le Wi-Fi automatiquement. Veuillez l\'activer manuellement dans les paramètres.',
+          actionLabel: 'Ouvrir les paramètres Wi-Fi',
+          action: () => _channel.invokeMethod('openWifiSettings'),
+        );
+      } else if (e.toString().contains('BLUETOOTH_ENABLE_FAILED')) {
+        _showErrorSnackBar(
+          'Impossible d\'activer le Bluetooth automatiquement. Veuillez l\'activer manuellement dans les paramètres.',
+          actionLabel: 'Ouvrir les paramètres Bluetooth',
+          action: () => _channel.invokeMethod('openBluetoothSettings'),
         );
       }
       throw e;
     }
   }
 
-  Future<void> _ensureWifiAndBluetoothEnabled() async {
-    try {
-      await _channel.invokeMethod('enableWifi');
-      await _channel.invokeMethod('enableBluetooth');
-    } catch (e) {
-      developer.log('Error enabling Wi-Fi/Bluetooth: $e');
-      throw Exception('Failed to enable Wi-Fi/Bluetooth');
-    }
-  }
-
   void startNetworkMonitoring() {
     Timer.periodic(Duration(seconds: 10), (timer) async {
       if (!_isInitialized || !_isServerStarted) {
-        developer.log('Network not initialized, retrying...');
+        developer.log('Réseau non initialisé, nouvelle tentative...');
         await initialize();
-      }
-      if (peers.isEmpty) {
-        developer.log(
-          'No peers connected, relying on streamClientList updates...',
-        );
-        // Peer discovery is handled by streamClientList, no explicit discoverPeers needed
       }
     });
   }
@@ -353,9 +396,11 @@ class AnnouncementProvider with ChangeNotifier {
       developer.log('Some permissions still missing after retry');
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-          content: const Text('Some permissions are still missing.'),
+          content: const Text(
+            'Certaines permissions sont toujours manquantes.',
+          ),
           action: SnackBarAction(
-            label: 'Retry',
+            label: 'Réessayer',
             onPressed: () => _retryInitialization(context),
           ),
         ),
@@ -401,16 +446,16 @@ class AnnouncementProvider with ChangeNotifier {
 
   void _broadcastAnnouncement(Announcement announcement) async {
     if (!_isInitialized || !_isServerStarted) {
-      developer.log('P2P not initialized or server not started');
+      developer.log('P2P non initialisé ou serveur non démarré');
       return;
     }
     try {
       await p2p.broadcastText(jsonEncode(announcement.toJson()));
-      developer.log('Announcement broadcasted');
+      developer.log('Annonce diffusée');
     } catch (e) {
-      developer.log('Broadcast error: $e');
+      developer.log('Erreur de diffusion : $e');
       if (e.toString().contains('SELinux')) {
-        developer.log('SELinux violation detected during broadcast');
+        developer.log('Violation SELinux détectée lors de la diffusion');
       }
     }
   }
@@ -424,9 +469,9 @@ class AnnouncementProvider with ChangeNotifier {
         jsonEncode({'type': 'delete_announcement', 'id': id}),
       );
     } catch (e) {
-      developer.log('Deletion broadcast error: $e');
+      developer.log('Erreur de diffusion de suppression : $e');
       if (e.toString().contains('SELinux')) {
-        developer.log('SELinux violation detected during deletion');
+        developer.log('Violation SELinux détectée lors de la suppression');
       }
     }
   }
@@ -449,10 +494,10 @@ class AnnouncementProvider with ChangeNotifier {
         notificationDetails,
       );
     } else {
-      developer.log('Notification permission not granted');
+      developer.log('Permission de notification non accordée');
       _showErrorSnackBar(
-        'Please grant notification permission to receive alerts.',
-        actionLabel: 'Settings',
+        'Veuillez autoriser les notifications pour recevoir des alertes.',
+        actionLabel: 'Paramètres',
         action: () => openAppSettings(),
       );
     }
@@ -460,7 +505,7 @@ class AnnouncementProvider with ChangeNotifier {
 
   void _showErrorSnackBar(
     String message, {
-    String actionLabel = 'Open Settings',
+    String actionLabel = 'Ouvrir les paramètres',
     VoidCallback? action,
   }) {
     WidgetsBinding.instance.addPostFrameCallback((_) {
@@ -477,7 +522,9 @@ class AnnouncementProvider with ChangeNotifier {
                     try {
                       await _channel.invokeMethod('openWifiSettings');
                     } catch (e) {
-                      developer.log('Error opening Wi-Fi settings: $e');
+                      developer.log(
+                        'Erreur lors de l\'ouverture des paramètres Wi-Fi : $e',
+                      );
                     }
                   },
             ),
@@ -489,7 +536,7 @@ class AnnouncementProvider with ChangeNotifier {
 
   Future<void> initiateCall(String peerId, String deviceAddress) async {
     if (!(await Permission.microphone.request()).isGranted) {
-      throw Exception('Microphone permission denied');
+      throw Exception('Permission de microphone refusée');
     }
 
     final configuration = {
@@ -763,9 +810,7 @@ class HomeScreen extends StatelessWidget {
                           },
                         );
                       },
-                      child: const Center(
-                        child: Text('No announcements received'),
-                      ),
+                      child: const Center(child: Text('Aucune annonce reçue')),
                     ),
                     Consumer<AnnouncementProvider>(
                       builder: (context, provider, _) {
@@ -782,9 +827,7 @@ class HomeScreen extends StatelessWidget {
                           },
                         );
                       },
-                      child: const Center(
-                        child: Text('No announcements created'),
-                      ),
+                      child: const Center(child: Text('Aucune annonce créée')),
                     ),
                   ],
                 ),
@@ -998,7 +1041,7 @@ class TweetLikeCard extends StatelessWidget {
                       children: [
                         if (!isCreated)
                           IconButton(
-                            tooltip: 'Call',
+                            tooltip: 'Appeler',
                             icon: const Icon(Icons.call, color: neonBlue),
                             onPressed: () async {
                               if (!context.mounted) return;
@@ -1011,20 +1054,18 @@ class TweetLikeCard extends StatelessWidget {
                                   announcement.deviceAddress,
                                 );
                                 ScaffoldMessenger.of(context).showSnackBar(
-                                  const SnackBar(
-                                    content: Text('Call initiated'),
-                                  ),
+                                  const SnackBar(content: Text('Appel initié')),
                                 );
                               } catch (e) {
                                 ScaffoldMessenger.of(context).showSnackBar(
-                                  SnackBar(content: Text('Error: $e')),
+                                  SnackBar(content: Text('Erreur : $e')),
                                 );
                               }
                             },
                           ),
                         if (isCreated)
                           IconButton(
-                            tooltip: 'Edit',
+                            tooltip: 'Modifier',
                             icon: const Icon(Icons.edit, color: neonBlue),
                             onPressed: () {
                               Navigator.push(
@@ -1039,7 +1080,7 @@ class TweetLikeCard extends StatelessWidget {
                             },
                           ),
                         IconButton(
-                          tooltip: 'Delete',
+                          tooltip: 'Supprimer',
                           icon: const Icon(
                             Icons.delete_forever,
                             color: Colors.redAccent,
@@ -1130,8 +1171,8 @@ class _CreateAnnouncementScreenState extends State<CreateAnnouncementScreen> {
       appBar: AppBar(
         title: Text(
           widget.announcement == null
-              ? 'Create Announcement'
-              : 'Edit Announcement',
+              ? 'Créer une annonce'
+              : 'Modifier l\'annonce',
           style: const TextStyle(color: neonBlue),
         ),
         backgroundColor: darkBackground,
@@ -1154,7 +1195,7 @@ class _CreateAnnouncementScreenState extends State<CreateAnnouncementScreen> {
                   controller: _titleController,
                   focusNode: _titleFocusNode,
                   decoration: InputDecoration(
-                    labelText: 'Title',
+                    labelText: 'Titre',
                     labelStyle: const TextStyle(color: neonBlue),
                     filled: true,
                     fillColor: Color(0xFF1A1A2E),
@@ -1205,7 +1246,7 @@ class _CreateAnnouncementScreenState extends State<CreateAnnouncementScreen> {
                 DropdownButtonFormField<String>(
                   value: _selectedCategory,
                   decoration: InputDecoration(
-                    labelText: 'Category',
+                    labelText: 'Catégorie',
                     labelStyle: const TextStyle(color: neonBlue),
                     filled: true,
                     fillColor: Color(0xFF1A1A2E),
@@ -1245,7 +1286,7 @@ class _CreateAnnouncementScreenState extends State<CreateAnnouncementScreen> {
                     ElevatedButton.icon(
                       onPressed: () => _pickImage(ImageSource.gallery),
                       icon: const Icon(Icons.photo, color: Colors.white),
-                      label: const Text('Gallery'),
+                      label: const Text('Galerie'),
                       style: ElevatedButton.styleFrom(
                         backgroundColor: neonPurple,
                         shape: RoundedRectangleBorder(
@@ -1256,7 +1297,7 @@ class _CreateAnnouncementScreenState extends State<CreateAnnouncementScreen> {
                     ElevatedButton.icon(
                       onPressed: () => _pickImage(ImageSource.camera),
                       icon: const Icon(Icons.camera_alt, color: Colors.white),
-                      label: const Text('Camera'),
+                      label: const Text('Caméra'),
                       style: ElevatedButton.styleFrom(
                         backgroundColor: neonPurple,
                         shape: RoundedRectangleBorder(
@@ -1334,7 +1375,9 @@ class _CreateAnnouncementScreenState extends State<CreateAnnouncementScreen> {
                       ),
                     ),
                     child: Text(
-                      widget.announcement == null ? 'Publish' : 'Update',
+                      widget.announcement == null
+                          ? 'Diffuser'
+                          : 'Mettre à jour',
                       style: const TextStyle(fontSize: 16),
                     ),
                   ),
