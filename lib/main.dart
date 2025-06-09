@@ -447,7 +447,7 @@ class XchangeApp extends StatelessWidget {
         floatingActionButtonTheme: const FloatingActionButtonThemeData(
           backgroundColor: neonBlue,
         ),
-        cardTheme: const CardTheme(
+        cardTheme: const CardThemeData(
           elevation: 0,
           margin: EdgeInsets.all(8),
           color: Color(0xFF1A1A1A),
