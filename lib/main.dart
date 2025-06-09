@@ -87,15 +87,22 @@ class AnnouncementProvider with ChangeNotifier {
       Permission.microphone,
       Permission.bluetoothScan,
       Permission.bluetoothConnect,
-      Permission.storage,
+      Permission.notification,
     ].request();
+
+    // Log precisely which permissions were not granted
+    statuses.forEach((permission, status) {
+      if (!status.isGranted) {
+        print('Permission manquante: $permission');
+      }
+    });
 
     if (!statuses[Permission.location]!.isGranted ||
         !statuses[Permission.nearbyWifiDevices]!.isGranted ||
         !statuses[Permission.microphone]!.isGranted ||
         !statuses[Permission.bluetoothScan]!.isGranted ||
         !statuses[Permission.bluetoothConnect]!.isGranted ||
-        !statuses[Permission.storage]!.isGranted) {
+        !statuses[Permission.notification]!.isGranted) {
       print('Permissions nécessaires non accordées');
       WidgetsBinding.instance.addPostFrameCallback((_) {
         ScaffoldMessenger.of(navigatorKey.currentContext!).showSnackBar(
