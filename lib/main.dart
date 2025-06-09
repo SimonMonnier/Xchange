@@ -1,13 +1,14 @@
 import 'dart:async';
 import 'dart:convert';
 import 'dart:developer' as developer;
+import 'dart:io';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import 'package:permission_handler/permission_handler.dart';
 import 'package:device_info_plus/device_info_plus.dart';
-import 'dart:io';
 import 'package:uuid/uuid.dart';
 import 'package:flutter_webrtc/flutter_webrtc.dart';
 import 'package:flutter_p2p_connection/flutter_p2p_connection.dart';
@@ -149,46 +150,55 @@ class AnnouncementProvider with ChangeNotifier {
       permissions.add(Permission.nearbyWifiDevices);
     }
 
+    // Vérification explicite de NEARBY_WIFI_DEVICES pour Android 13+
+    if (sdkInt >= 33 && !(await Permission.nearbyWifiDevices.isGranted)) {
+      developer.log('NEARBY_WIFI_DEVICES permission not granted');
+      _showErrorSnackBar(
+        'Please grant Nearby Wi-Fi Devices permission to use Wi-Fi Direct.',
+        actionLabel: 'Settings',
+        action: () => openAppSettings(),
+      );
+      _completer?.complete();
+      return;
+    }
+
+    // Demander les permissions
     final statuses = await permissions.request();
-    bool allPermissionsGranted = true;
+    bool allPermissionsGranted = statuses.values.every(
+      (status) => status.isGranted,
+    );
 
-    statuses.forEach((permission, status) {
-      if (!status.isGranted) {
-        developer.log('Missing permission: $permission');
-        allPermissionsGranted = false;
-      }
-    });
-
-    final hasNearbyPermission = sdkInt >= 33
-        ? statuses[Permission.nearbyWifiDevices]!.isGranted
-        : true;
-
-    if (!allPermissionsGranted || !hasNearbyPermission) {
+    if (!allPermissionsGranted) {
       developer.log('Required permissions not granted');
-      WidgetsBinding.instance.addPostFrameCallback((_) {
-        final context = navigatorKey.currentContext;
-        if (context != null && context.mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(
-              content: const Text(
-                'Please grant all necessary permissions (location, microphone, etc.) to use app features.',
-              ),
-              action: SnackBarAction(
-                label: 'Settings',
-                onPressed: () async {
-                  await openAppSettings();
-                  if (context.mounted) {
-                    await _retryInitialization(context);
-                  }
-                },
-              ),
-            ),
-          );
-        }
-      });
-      if (_completer != null && !_completer!.isCompleted) {
-        _completer!.complete();
+      _showErrorSnackBar(
+        'Please grant all necessary permissions (location, microphone, nearby devices, etc.) to use app features.',
+        actionLabel: 'Settings',
+        action: () => openAppSettings(),
+      );
+      _completer?.complete();
+      return;
+    }
+
+    // Vérifier Wi-Fi, Bluetooth et Tethering
+    try {
+      await _ensureWifiAndBluetoothEnabled();
+      final isTetheringEnabled = await _channel.invokeMethod(
+        'isTetheringEnabled',
+      );
+      if (!(isTetheringEnabled as bool)) {
+        developer.log('Tethering is disabled');
+        _showErrorSnackBar(
+          'Tethering is disabled. Please enable it in Wi-Fi settings.',
+          actionLabel: 'Open Tethering Settings',
+          action: () => _channel.invokeMethod('openTetheringSettings'),
+        );
+        _completer?.complete();
+        return;
       }
+    } catch (e) {
+      developer.log('Error enabling Wi-Fi/Bluetooth/Tethering: $e');
+      _showErrorSnackBar('Please enable Wi-Fi, Bluetooth, and tethering.');
+      _completer?.complete();
       return;
     }
 
@@ -199,16 +209,17 @@ class AnnouncementProvider with ChangeNotifier {
       );
       try {
         p2p.initialize();
-        await p2p.createGroup();
+        await createGroupWithRetry();
         _isServerStarted = true;
-        developer.log('P2P group created');
+        developer.log('P2P group created successfully');
 
+        // Configurer les listeners pour les messages et les clients
         p2p.streamReceivedTexts().listen(
-          (message) {
+          (message) async {
             try {
               final data = jsonDecode(message);
               if (data['type'] == 'announcement') {
-                final announcement = Announcement.fromJson(data);
+                final announcement = await parseAnnouncement(data);
                 addReceivedAnnouncement(announcement);
               } else if (data['type'] == 'offer') {
                 _handleOffer(data['sdp'], data['from'], data['to']);
@@ -233,11 +244,6 @@ class AnnouncementProvider with ChangeNotifier {
           },
           onError: (e) {
             developer.log('Error in streamReceivedTexts: $e');
-            if (e.toString().contains('SELinux')) {
-              developer.log(
-                'SELinux violation detected in flutter_p2p_connection',
-              );
-            }
           },
         );
 
@@ -251,66 +257,74 @@ class AnnouncementProvider with ChangeNotifier {
           },
           onError: (e) {
             developer.log('Error in streamClientList: $e');
-            if (e.toString().contains('SELinux')) {
-              developer.log(
-                'SELinux violation detected in flutter_p2p_connection',
-              );
-            }
           },
         );
 
         _isInitialized = true;
-        if (_completer != null && !_completer!.isCompleted) {
-          _completer!.complete();
-        }
+        startNetworkMonitoring();
+        _completer?.complete();
       } catch (e) {
         developer.log('Initialization error: $e');
         retries--;
-        if (e.toString().contains('BLUETOOTH_DISABLED')) {
-          WidgetsBinding.instance.addPostFrameCallback((_) {
-            final context = navigatorKey.currentContext;
-            if (context != null && context.mounted) {
-              ScaffoldMessenger.of(context).showSnackBar(
-                const SnackBar(
-                  content: Text('Please enable Bluetooth to use Wi-Fi Direct.'),
-                ),
-              );
-            }
-          });
-        }
-        if (e.toString().contains('SELinux')) {
-          developer.log('SELinux violation detected during P2P initialization');
-        }
         if (retries == 0) {
-          WidgetsBinding.instance.addPostFrameCallback((_) {
-            final context = navigatorKey.currentContext;
-            if (context != null && context.mounted) {
-              ScaffoldMessenger.of(context).showSnackBar(
-                SnackBar(
-                  content: const Text(
-                    'Unable to activate Wi-Fi Direct. Please check Wi-Fi settings.',
-                  ),
-                  action: SnackBarAction(
-                    label: 'Open Wi-Fi Settings',
-                    onPressed: () async {
-                      try {
-                        await _channel.invokeMethod('openWifiSettings');
-                      } catch (e) {
-                        developer.log('Error opening Wi-Fi settings: $e');
-                      }
-                    },
-                  ),
-                ),
-              );
-            }
-          });
+          _showErrorSnackBar(
+            'Unable to activate Wi-Fi Direct. Please check Wi-Fi, Bluetooth, and tethering settings.',
+            actionLabel: 'Open Tethering Settings',
+            action: () => _channel.invokeMethod('openTetheringSettings'),
+          );
         }
         await Future.delayed(const Duration(seconds: 2));
       }
     }
-    if (_completer != null && !_completer!.isCompleted) {
-      _completer!.complete();
+    _completer?.complete();
+  }
+
+  Future<void> createGroupWithRetry() async {
+    try {
+      await p2p.createGroup();
+      _isServerStarted = true;
+      developer.log('P2P group created successfully');
+    } catch (e) {
+      developer.log('Failed to create P2P group: $e');
+      _isServerStarted = false;
+      if (e.toString().contains('ERROR_TETHERING_DISALLOWED')) {
+        _showErrorSnackBar(
+          'Tethering is not allowed. Please enable it in Wi-Fi settings.',
+          actionLabel: 'Open Tethering Settings',
+          action: () => _channel.invokeMethod('openTetheringSettings'),
+        );
+      } else {
+        _showErrorSnackBar(
+          'Failed to create Wi-Fi Direct group. Please ensure Wi-Fi and Bluetooth are enabled.',
+        );
+      }
+      throw e;
     }
+  }
+
+  Future<void> _ensureWifiAndBluetoothEnabled() async {
+    try {
+      await _channel.invokeMethod('enableWifi');
+      await _channel.invokeMethod('enableBluetooth');
+    } catch (e) {
+      developer.log('Error enabling Wi-Fi/Bluetooth: $e');
+      throw Exception('Failed to enable Wi-Fi/Bluetooth');
+    }
+  }
+
+  void startNetworkMonitoring() {
+    Timer.periodic(Duration(seconds: 10), (timer) async {
+      if (!_isInitialized || !_isServerStarted) {
+        developer.log('Network not initialized, retrying...');
+        await initialize();
+      }
+      if (peers.isEmpty) {
+        developer.log(
+          'No peers connected, relying on streamClientList updates...',
+        );
+        // Peer discovery is handled by streamClientList, no explicit discoverPeers needed
+      }
+    });
   }
 
   Future<void> _retryInitialization(BuildContext context) async {
@@ -418,25 +432,63 @@ class AnnouncementProvider with ChangeNotifier {
   }
 
   void _showNotification(Announcement announcement) async {
-    final flutterLocalNotificationsPlugin = FlutterLocalNotificationsPlugin();
-    const androidDetails = AndroidNotificationDetails(
-      'channel_id',
-      'Annonces',
-      importance: Importance.max,
-      priority: Priority.high,
-      color: neonBlue,
-    );
-    const notificationDetails = NotificationDetails(android: androidDetails);
-    await flutterLocalNotificationsPlugin.show(
-      0,
-      announcement.title,
-      announcement.description,
-      notificationDetails,
-    );
+    if (await Permission.notification.isGranted) {
+      final flutterLocalNotificationsPlugin = FlutterLocalNotificationsPlugin();
+      const androidDetails = AndroidNotificationDetails(
+        'channel_id',
+        'Annonces',
+        importance: Importance.max,
+        priority: Priority.high,
+        color: neonBlue,
+      );
+      const notificationDetails = NotificationDetails(android: androidDetails);
+      await flutterLocalNotificationsPlugin.show(
+        0,
+        announcement.title,
+        announcement.description,
+        notificationDetails,
+      );
+    } else {
+      developer.log('Notification permission not granted');
+      _showErrorSnackBar(
+        'Please grant notification permission to receive alerts.',
+        actionLabel: 'Settings',
+        action: () => openAppSettings(),
+      );
+    }
+  }
+
+  void _showErrorSnackBar(
+    String message, {
+    String actionLabel = 'Open Settings',
+    VoidCallback? action,
+  }) {
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      final context = navigatorKey.currentContext;
+      if (context != null && context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(message),
+            action: SnackBarAction(
+              label: actionLabel,
+              onPressed:
+                  action ??
+                  () async {
+                    try {
+                      await _channel.invokeMethod('openWifiSettings');
+                    } catch (e) {
+                      developer.log('Error opening Wi-Fi settings: $e');
+                    }
+                  },
+            ),
+          ),
+        );
+      }
+    });
   }
 
   Future<void> initiateCall(String peerId, String deviceAddress) async {
-    if (!(await Permission.microphone.request().isGranted)) {
+    if (!(await Permission.microphone.request()).isGranted) {
       throw Exception('Microphone permission denied');
     }
 
@@ -452,7 +504,7 @@ class AnnouncementProvider with ChangeNotifier {
       'video': false,
     });
     _localStream!.getTracks().forEach((track) {
-      _peerConnection!.addTrack(track, _localStream!);
+      _peerConnection?.addTrack(track, _localStream!);
     });
 
     final offer = await _peerConnection!.createOffer();
@@ -528,6 +580,23 @@ class AnnouncementProvider with ChangeNotifier {
     p2p.dispose();
     super.dispose();
   }
+}
+
+Future<Announcement> parseAnnouncement(Map<String, dynamic> json) async {
+  return await compute(_parseAnnouncement, json);
+}
+
+Announcement _parseAnnouncement(Map<String, dynamic> json) {
+  return Announcement(
+    id: json['id'],
+    title: json['title'],
+    description: json['description'],
+    broadcasterId: json['broadcasterId'],
+    broadcasterName: json['broadcasterName'],
+    deviceAddress: json['deviceAddress'],
+    imageBase64: json['imageBase64'],
+    category: json['category'] ?? 'Autres',
+  );
 }
 
 final GlobalKey<NavigatorState> navigatorKey = GlobalKey<NavigatorState>();
@@ -1081,192 +1150,197 @@ class _CreateAnnouncementScreenState extends State<CreateAnnouncementScreen> {
             child: Column(
               mainAxisSize: MainAxisSize.min,
               children: [
-              TextField(
-                controller: _titleController,
-                focusNode: _titleFocusNode,
-                decoration: InputDecoration(
-                  labelText: 'Title',
-                  labelStyle: const TextStyle(color: neonBlue),
-                  filled: true,
-                  fillColor: Color(0xFF1A1A2E),
-                  border: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(12),
-                    borderSide: BorderSide(color: neonBlue.withValues()),
-                  ),
-                  enabledBorder: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(12),
-                    borderSide: BorderSide(color: neonBlue.withValues()),
-                  ),
-                  focusedBorder: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(12),
-                    borderSide: const BorderSide(color: neonBlue),
-                  ),
-                ),
-                style: const TextStyle(color: Colors.white),
-                onSubmitted: (_) =>
-                    FocusScope.of(context).requestFocus(_descriptionFocusNode),
-              ),
-              const SizedBox(height: 16),
-              TextField(
-                controller: _descriptionController,
-                focusNode: _descriptionFocusNode,
-                decoration: InputDecoration(
-                  labelText: 'Description',
-                  labelStyle: const TextStyle(color: neonBlue),
-                  filled: true,
-                  fillColor: Color(0xFF1A1A2E),
-                  border: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(12),
-                    borderSide: BorderSide(color: neonBlue.withValues()),
-                  ),
-                  enabledBorder: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(12),
-                    borderSide: BorderSide(color: neonBlue.withValues()),
-                  ),
-                  focusedBorder: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(12),
-                    borderSide: const BorderSide(color: neonBlue),
-                  ),
-                ),
-                style: const TextStyle(color: Colors.white),
-                maxLines: 4,
-              ),
-              const SizedBox(height: 16),
-              DropdownButtonFormField<String>(
-                value: _selectedCategory,
-                decoration: InputDecoration(
-                  labelText: 'Category',
-                  labelStyle: const TextStyle(color: neonBlue),
-                  filled: true,
-                  fillColor: Color(0xFF1A1A2E),
-                  border: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(12),
-                    borderSide: BorderSide(color: neonBlue.withValues()),
-                  ),
-                  enabledBorder: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(12),
-                    borderSide: BorderSide(color: neonBlue.withValues()),
-                  ),
-                  focusedBorder: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(12),
-                    borderSide: const BorderSide(color: neonBlue),
-                  ),
-                ),
-                dropdownColor: const Color(0xFF1A1A2E),
-                style: const TextStyle(color: Colors.white),
-                items: AnnouncementProvider.categories
-                    .map(
-                      (category) => DropdownMenuItem(
-                        value: category,
-                        child: Text(category),
-                      ),
-                    )
-                    .toList(),
-                onChanged: (value) {
-                  setState(() {
-                    _selectedCategory = value!;
-                  });
-                },
-              ),
-              const SizedBox(height: 16),
-              Row(
-                mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-                children: [
-                  ElevatedButton.icon(
-                    onPressed: () => _pickImage(ImageSource.gallery),
-                    icon: const Icon(Icons.photo, color: Colors.white),
-                    label: const Text('Gallery'),
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor: neonPurple,
-                      shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(12),
-                      ),
-                    ),
-                  ),
-                  ElevatedButton.icon(
-                    onPressed: () => _pickImage(ImageSource.camera),
-                    icon: const Icon(Icons.camera_alt, color: Colors.white),
-                    label: const Text('Camera'),
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor: neonPurple,
-                      shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(12),
-                      ),
-                    ),
-                  ),
-                ],
-              ),
-              if (_imageFile != null)
-                Padding(
-                  padding: const EdgeInsets.only(top: 8.0),
-                  child: ClipRRect(
-                    borderRadius: BorderRadius.circular(8),
-                    child: Image.file(
-                      File(_imageFile!.path),
-                      height: 150,
-                      fit: BoxFit.cover,
-                    ),
-                  ),
-                ),
-              if (widget.announcement?.imageBase64 != null &&
-                  _imageFile == null)
-                Padding(
-                  padding: const EdgeInsets.only(top: 8.0),
-                  child: ClipRRect(
-                    borderRadius: BorderRadius.circular(8),
-                    child: Image.memory(
-                      base64Decode(widget.announcement!.imageBase64!),
-                      height: 150,
-                      fit: BoxFit.cover,
-                    ),
-                  ),
-                ),
-              const SizedBox(height: 16),
-              Consumer<AnnouncementProvider>(
-                builder: (context, provider, _) => ElevatedButton(
-                  onPressed: provider.isInitialized && provider.isServerStarted
-                      ? () async {
-                          if (!context.mounted) return;
-                          FocusScope.of(context).unfocus();
-                          final announcement = Announcement(
-                            id: widget.announcement?.id ?? const Uuid().v4(),
-                            title: _titleController.text,
-                            description: _descriptionController.text,
-                            broadcasterId: provider.deviceId,
-                            broadcasterName: provider.deviceName,
-                            deviceAddress: provider.peers.isNotEmpty
-                                ? provider.peers[0].id
-                                : '',
-                            imageBase64: _imageFile != null
-                                ? base64Encode(await _imageFile!.readAsBytes())
-                                : widget.announcement?.imageBase64,
-                            category: _selectedCategory,
-                          );
-                          if (widget.announcement == null) {
-                            provider.addCreatedAnnouncement(announcement);
-                          } else {
-                            provider.updateCreatedAnnouncement(announcement);
-                          }
-                          Navigator.pop(context);
-                        }
-                      : null,
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: neonBlue,
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: 32,
-                      vertical: 16,
-                    ),
-                    shape: RoundedRectangleBorder(
+                TextField(
+                  controller: _titleController,
+                  focusNode: _titleFocusNode,
+                  decoration: InputDecoration(
+                    labelText: 'Title',
+                    labelStyle: const TextStyle(color: neonBlue),
+                    filled: true,
+                    fillColor: Color(0xFF1A1A2E),
+                    border: OutlineInputBorder(
                       borderRadius: BorderRadius.circular(12),
+                      borderSide: BorderSide(color: neonBlue.withValues()),
+                    ),
+                    enabledBorder: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(12),
+                      borderSide: BorderSide(color: neonBlue.withValues()),
+                    ),
+                    focusedBorder: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(12),
+                      borderSide: const BorderSide(color: neonBlue),
                     ),
                   ),
-                  child: Text(
-                    widget.announcement == null ? 'Publish' : 'Update',
-                    style: const TextStyle(fontSize: 16),
+                  style: const TextStyle(color: Colors.white),
+                  onSubmitted: (_) => FocusScope.of(
+                    context,
+                  ).requestFocus(_descriptionFocusNode),
+                ),
+                const SizedBox(height: 16),
+                TextField(
+                  controller: _descriptionController,
+                  focusNode: _descriptionFocusNode,
+                  decoration: InputDecoration(
+                    labelText: 'Description',
+                    labelStyle: const TextStyle(color: neonBlue),
+                    filled: true,
+                    fillColor: Color(0xFF1A1A2E),
+                    border: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(12),
+                      borderSide: BorderSide(color: neonBlue.withValues()),
+                    ),
+                    enabledBorder: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(12),
+                      borderSide: BorderSide(color: neonBlue.withValues()),
+                    ),
+                    focusedBorder: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(12),
+                      borderSide: const BorderSide(color: neonBlue),
+                    ),
+                  ),
+                  style: const TextStyle(color: Colors.white),
+                  maxLines: 4,
+                ),
+                const SizedBox(height: 16),
+                DropdownButtonFormField<String>(
+                  value: _selectedCategory,
+                  decoration: InputDecoration(
+                    labelText: 'Category',
+                    labelStyle: const TextStyle(color: neonBlue),
+                    filled: true,
+                    fillColor: Color(0xFF1A1A2E),
+                    border: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(12),
+                      borderSide: BorderSide(color: neonBlue.withValues()),
+                    ),
+                    enabledBorder: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(12),
+                      borderSide: BorderSide(color: neonBlue.withValues()),
+                    ),
+                    focusedBorder: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(12),
+                      borderSide: const BorderSide(color: neonBlue),
+                    ),
+                  ),
+                  dropdownColor: const Color(0xFF1A1A2E),
+                  style: const TextStyle(color: Colors.white),
+                  items: AnnouncementProvider.categories
+                      .map(
+                        (category) => DropdownMenuItem(
+                          value: category,
+                          child: Text(category),
+                        ),
+                      )
+                      .toList(),
+                  onChanged: (value) {
+                    setState(() {
+                      _selectedCategory = value!;
+                    });
+                  },
+                ),
+                const SizedBox(height: 16),
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+                  children: [
+                    ElevatedButton.icon(
+                      onPressed: () => _pickImage(ImageSource.gallery),
+                      icon: const Icon(Icons.photo, color: Colors.white),
+                      label: const Text('Gallery'),
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: neonPurple,
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(12),
+                        ),
+                      ),
+                    ),
+                    ElevatedButton.icon(
+                      onPressed: () => _pickImage(ImageSource.camera),
+                      icon: const Icon(Icons.camera_alt, color: Colors.white),
+                      label: const Text('Camera'),
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: neonPurple,
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(12),
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+                if (_imageFile != null)
+                  Padding(
+                    padding: const EdgeInsets.only(top: 8.0),
+                    child: ClipRRect(
+                      borderRadius: BorderRadius.circular(8),
+                      child: Image.file(
+                        File(_imageFile!.path),
+                        height: 150,
+                        fit: BoxFit.cover,
+                      ),
+                    ),
+                  ),
+                if (widget.announcement?.imageBase64 != null &&
+                    _imageFile == null)
+                  Padding(
+                    padding: const EdgeInsets.only(top: 8.0),
+                    child: ClipRRect(
+                      borderRadius: BorderRadius.circular(8),
+                      child: Image.memory(
+                        base64Decode(widget.announcement!.imageBase64!),
+                        height: 150,
+                        fit: BoxFit.cover,
+                      ),
+                    ),
+                  ),
+                const SizedBox(height: 16),
+                Consumer<AnnouncementProvider>(
+                  builder: (context, provider, _) => ElevatedButton(
+                    onPressed:
+                        provider.isInitialized && provider.isServerStarted
+                        ? () async {
+                            if (!context.mounted) return;
+                            FocusScope.of(context).unfocus();
+                            final announcement = Announcement(
+                              id: widget.announcement?.id ?? const Uuid().v4(),
+                              title: _titleController.text,
+                              description: _descriptionController.text,
+                              broadcasterId: provider.deviceId,
+                              broadcasterName: provider.deviceName,
+                              deviceAddress: provider.peers.isNotEmpty
+                                  ? provider.peers[0].id
+                                  : '',
+                              imageBase64: _imageFile != null
+                                  ? base64Encode(
+                                      await _imageFile!.readAsBytes(),
+                                    )
+                                  : widget.announcement?.imageBase64,
+                              category: _selectedCategory,
+                            );
+                            if (widget.announcement == null) {
+                              provider.addCreatedAnnouncement(announcement);
+                            } else {
+                              provider.updateCreatedAnnouncement(announcement);
+                            }
+                            Navigator.pop(context);
+                          }
+                        : null,
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: neonBlue,
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 32,
+                        vertical: 16,
+                      ),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                    ),
+                    child: Text(
+                      widget.announcement == null ? 'Publish' : 'Update',
+                      style: const TextStyle(fontSize: 16),
+                    ),
                   ),
                 ),
-              ),
-            ],
+              ],
+            ),
           ),
         ),
       ),

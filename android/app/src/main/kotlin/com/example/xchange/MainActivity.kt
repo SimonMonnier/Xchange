@@ -1,6 +1,8 @@
 package com.example.xchange
 
+import android.bluetooth.BluetoothAdapter
 import android.content.Intent
+import android.net.wifi.WifiManager
 import android.provider.Settings
 import androidx.annotation.NonNull
 import io.flutter.embedding.android.FlutterActivity
@@ -15,9 +17,29 @@ class MainActivity : FlutterActivity() {
         MethodChannel(flutterEngine.dartExecutor.binaryMessenger, CHANNEL).setMethodCallHandler { call, result ->
             when (call.method) {
                 "openWifiSettings" -> {
-                    val intent = Intent(Settings.ACTION_WIFI_SETTINGS)
-                    intent.flags = Intent.FLAG_ACTIVITY_NEW_TASK
-                    startActivity(intent)
+                    startActivity(Intent(Settings.ACTION_WIFI_SETTINGS))
+                    result.success(null)
+                }
+                "enableWifi" -> {
+                    val wifiManager = applicationContext.getSystemService(WIFI_SERVICE) as WifiManager
+                    if (!wifiManager.isWifiEnabled) {
+                        wifiManager.isWifiEnabled = true
+                    }
+                    result.success(null)
+                }
+                "enableBluetooth" -> {
+                    val bluetoothAdapter = BluetoothAdapter.getDefaultAdapter()
+                    if (bluetoothAdapter != null && !bluetoothAdapter.isEnabled) {
+                        bluetoothAdapter.enable()
+                    }
+                    result.success(null)
+                }
+                "isTetheringEnabled" -> {
+                    val wifiManager = applicationContext.getSystemService(WIFI_SERVICE) as WifiManager
+                    result.success(wifiManager.isWifiEnabled) // Simplified check, improve if needed
+                }
+                "openTetheringSettings" -> {
+                    startActivity(Intent(Settings.ACTION_WIRELESS_SETTINGS))
                     result.success(null)
                 }
                 else -> result.notImplemented()
