@@ -6,6 +6,12 @@ environment:
 dependencies:
   flutter:
     sdk: flutter
+    fonts:
+    - family: Montserrat
+      fonts:
+        - asset: fonts/Montserrat-Regular.ttf
+        - asset: fonts/Montserrat-Bold.ttf
+          weight: 700
   provider: ^6.0.0
   flutter_local_notifications: ^17.0.0
   permission_handler: ^11.0.0

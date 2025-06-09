@@ -13,8 +13,11 @@ import 'package:flutter_p2p_connection/flutter_p2p_connection.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:image_picker/image_picker.dart';
 
-/// Primary neon blue color used across the dark theme.
-const Color neonBlue = Color(0xFF1F51FF);
+/// Palette de couleurs futuristes
+const Color neonBlue = Color(0xFF00DDEB);
+const Color neonPurple = Color(0xFF7B00FF);
+const Color darkBackground = Color(0xFF0A0A1F);
+const Color accentGlow = Color(0xFF00FF88);
 
 class Announcement {
   final String id;
@@ -78,7 +81,6 @@ class AnnouncementProvider with ChangeNotifier {
   bool _isServerStarted = false;
   final Completer<void> _initCompleter = Completer<void>();
 
-  /// Future that completes once the P2P initialization process has finished.
   Future<void> get initializationDone => _initCompleter.future;
 
   bool get isInitialized => _isInitialized;
@@ -94,13 +96,13 @@ class AnnouncementProvider with ChangeNotifier {
   }
 
   Future<void> _init() async {
-    // Obtenir le chemin de téléchargement
     final directory = await getApplicationDocumentsDirectory();
     _downloadPath = directory.path;
 
-    // Demander les permissions selon la version Android
     final deviceInfo = DeviceInfoPlugin();
-    final androidInfo = Platform.isAndroid ? await deviceInfo.androidInfo : null;
+    final androidInfo = Platform.isAndroid
+        ? await deviceInfo.androidInfo
+        : null;
     final sdkInt = androidInfo?.version.sdkInt ?? 0;
 
     final permissions = <Permission>[
@@ -117,7 +119,6 @@ class AnnouncementProvider with ChangeNotifier {
 
     final statuses = await permissions.request();
 
-    // Log precisely which permissions were not granted
     statuses.forEach((permission, status) {
       if (!status.isGranted) {
         print('Permission manquante: $permission');
@@ -154,22 +155,17 @@ class AnnouncementProvider with ChangeNotifier {
       return;
     }
 
-    // Initialiser le P2P
     int retries = 3;
     while (retries > 0 && !_isInitialized) {
       print(
         'Tentative d\'initialisation Wi-Fi Direct, retries restants: $retries',
       );
       try {
-        // Initialiser la connexion P2P
         p2p.initialize();
-
-        // Créer le groupe Wi-Fi Direct
         await p2p.createGroup();
         _isServerStarted = true;
         print('Groupe P2P créé');
 
-        // Écouter les messages reçus
         p2p.streamReceivedTexts().listen((message) {
           try {
             final data = jsonDecode(message);
@@ -198,11 +194,9 @@ class AnnouncementProvider with ChangeNotifier {
           }
         });
 
-        // Écouter les clients connectés
         p2p.streamClientList().listen((clientList) {
           peers = clientList.where((c) => !c.isHost).toList();
           notifyListeners();
-          // Rediffuser les annonces existantes aux nouveaux clients
           for (var announcement in _createdAnnouncements) {
             _broadcastAnnouncement(announcement);
           }
@@ -219,8 +213,9 @@ class AnnouncementProvider with ChangeNotifier {
           WidgetsBinding.instance.addPostFrameCallback((_) {
             ScaffoldMessenger.of(navigatorKey.currentContext!).showSnackBar(
               const SnackBar(
-                content:
-                    Text('Veuillez activer le Bluetooth pour utiliser le Wi-Fi Direct.'),
+                content: Text(
+                  'Veuillez activer le Bluetooth pour utiliser le Wi-Fi Direct.',
+                ),
               ),
             );
           });
@@ -297,7 +292,9 @@ class AnnouncementProvider with ChangeNotifier {
       return;
     }
     try {
-      await p2p.broadcastText(jsonEncode({'type': 'delete_announcement', 'id': id}));
+      await p2p.broadcastText(
+        jsonEncode({'type': 'delete_announcement', 'id': id}),
+      );
     } catch (e) {
       print('Erreur lors de la diffusion de la suppression : $e');
     }
@@ -310,6 +307,7 @@ class AnnouncementProvider with ChangeNotifier {
       'Annonces',
       importance: Importance.max,
       priority: Priority.high,
+      color: neonBlue,
     );
     const notificationDetails = NotificationDetails(android: androidDetails);
     await flutterLocalNotificationsPlugin.show(
@@ -365,9 +363,7 @@ class AnnouncementProvider with ChangeNotifier {
       }
     };
 
-    _peerConnection!.onTrack = (event) {
-      // Gérer le flux distant si nécessaire
-    };
+    _peerConnection!.onTrack = (event) {};
   }
 
   Future<void> _handleOffer(String sdp, String from, String to) async {
@@ -448,17 +444,63 @@ class XchangeApp extends StatelessWidget {
     return MaterialApp(
       title: 'xchange',
       theme: ThemeData.dark().copyWith(
-        colorScheme: const ColorScheme.dark(primary: neonBlue, secondary: neonBlue),
-        primaryColor: neonBlue,
-        scaffoldBackgroundColor: Colors.black,
-        appBarTheme: const AppBarTheme(backgroundColor: Colors.black),
-        floatingActionButtonTheme: const FloatingActionButtonThemeData(
-          backgroundColor: neonBlue,
+        colorScheme: const ColorScheme.dark(
+          primary: neonBlue,
+          secondary: neonPurple,
+          surface: darkBackground,
         ),
-        cardTheme: const CardThemeData(
+        primaryColor: neonBlue,
+        scaffoldBackgroundColor: darkBackground,
+        appBarTheme: AppBarTheme(
+          backgroundColor: darkBackground,
           elevation: 0,
-          margin: EdgeInsets.all(8),
-          color: Color(0xFF1A1A1A),
+          titleTextStyle: TextStyle(
+            fontFamily: 'Montserrat',
+            fontWeight: FontWeight.bold,
+            fontSize: 20,
+            color: neonBlue,
+          ),
+        ),
+        floatingActionButtonTheme: FloatingActionButtonThemeData(
+          backgroundColor: neonPurple,
+          foregroundColor: Colors.white,
+          elevation: 8,
+          hoverColor: accentGlow,
+        ),
+        cardTheme: CardTheme(
+          elevation: 4,
+          margin: EdgeInsets.all(12),
+          color: Color(0xFF1A1A2E),
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(16),
+            side: BorderSide(color: neonBlue.withOpacity(0.2)),
+          ),
+        ),
+        textTheme: TextTheme(
+          bodyLarge: TextStyle(color: Colors.white, fontFamily: 'Montserrat'),
+          bodyMedium: TextStyle(
+            color: Colors.white70,
+            fontFamily: 'Montserrat',
+          ),
+          titleLarge: TextStyle(
+            color: neonBlue,
+            fontWeight: FontWeight.bold,
+            fontFamily: 'Montserrat',
+          ),
+        ),
+        elevatedButtonTheme: ElevatedButtonThemeData(
+          style: ElevatedButton.styleFrom(
+            backgroundColor: neonPurple,
+            foregroundColor: Colors.white,
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(12),
+            ),
+            padding: EdgeInsets.symmetric(horizontal: 24, vertical: 12),
+            textStyle: TextStyle(
+              fontFamily: 'Montserrat',
+              fontWeight: FontWeight.bold,
+            ),
+          ),
         ),
       ),
       navigatorKey: navigatorKey,
@@ -473,53 +515,81 @@ class HomeScreen extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: const Text('xchange')),
-      body: DefaultTabController(
-        length: 2,
-        child: Column(
-          children: [
-            const TabBar(
-              tabs: [
-                Tab(text: 'Reçues'),
-                Tab(text: 'Créées'),
-              ],
-            ),
-            Expanded(
-              child: TabBarView(
-                children: [
-                  Consumer<AnnouncementProvider>(
-                    builder: (context, provider, child) {
-                      return ListView.builder(
-                        itemCount: provider.receivedAnnouncements.length,
-                        itemBuilder: (context, index) {
-                          final announcement =
-                              provider.receivedAnnouncements[index];
-                          return TweetLikeAnnouncement(
-                            announcement: announcement,
-                          );
-                        },
-                      );
-                    },
+      appBar: AppBar(
+        title: Text('xchange', style: TextStyle(color: neonBlue)),
+        backgroundColor: darkBackground,
+      ),
+      body: Container(
+        decoration: BoxDecoration(
+          gradient: LinearGradient(
+            colors: [darkBackground, Color(0xFF141432)],
+            begin: Alignment.topCenter,
+            end: Alignment.bottomCenter,
+          ),
+        ),
+        child: DefaultTabController(
+          length: 2,
+          child: Column(
+            children: [
+              Container(
+                margin: EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                decoration: BoxDecoration(
+                  color: Color(0xFF1A1A2E),
+                  borderRadius: BorderRadius.circular(12),
+                  border: Border.all(color: neonBlue.withOpacity(0.3)),
+                ),
+                child: TabBar(
+                  labelColor: neonBlue,
+                  unselectedLabelColor: Colors.white70,
+                  indicator: BoxDecoration(
+                    borderRadius: BorderRadius.circular(12),
+                    gradient: LinearGradient(colors: [neonBlue, neonPurple]),
                   ),
-                  Consumer<AnnouncementProvider>(
-                    builder: (context, provider, child) {
-                      return ListView.builder(
-                        itemCount: provider.createdAnnouncements.length,
-                        itemBuilder: (context, index) {
-                          final announcement =
-                              provider.createdAnnouncements[index];
-                          return TweetLikeAnnouncement(
-                            announcement: announcement,
-                            isCreated: true,
-                          );
-                        },
-                      );
-                    },
-                  ),
-                ],
+                  tabs: [
+                    Tab(text: 'Reçues'),
+                    Tab(text: 'Créées'),
+                  ],
+                ),
               ),
-            ),
-          ],
+              Expanded(
+                child: TabBarView(
+                  children: [
+                    Consumer<AnnouncementProvider>(
+                      builder: (context, provider, child) {
+                        return ListView.builder(
+                          padding: EdgeInsets.all(8),
+                          itemCount: provider.receivedAnnouncements.length,
+                          itemBuilder: (context, index) {
+                            final announcement =
+                                provider.receivedAnnouncements[index];
+                            return TweetLikeAnnouncement(
+                              announcement: announcement,
+                            );
+                          },
+                        );
+                      },
+                    ),
+                    Consumer<AnnouncementProvider>(
+                      builder: (context, provider, child) {
+                        return ListView.builder(
+                          padding: EdgeInsets.all(8),
+                          itemCount: provider.createdAnnouncements.length,
+                          itemBuilder: (context, index) {
+                            final announcement =
+                                provider.createdAnnouncements[index];
+                            return TweetLikeAnnouncement(
+                              announcement: announcement,
+                              isCreated: true,
+                            );
+                          },
+                        );
+                      },
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
         ),
       ),
       floatingActionButton: FloatingActionButton(
@@ -531,7 +601,8 @@ class HomeScreen extends StatelessWidget {
             ),
           );
         },
-        child: const Icon(Icons.add),
+        child: Icon(Icons.add),
+        elevation: 8,
       ),
     );
   }
@@ -550,105 +621,145 @@ class TweetLikeAnnouncement extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Card(
-      elevation: 0,
-      child: Padding(
-        padding: const EdgeInsets.all(16.0),
-        child: Row(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            CircleAvatar(
-              backgroundColor: neonBlue,
-              child: Text(announcement.broadcasterName[0]),
-            ),
-            const SizedBox(width: 12),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Row(
-                    children: [
-                      Text(
-                        announcement.broadcasterName,
-                        style: const TextStyle(fontWeight: FontWeight.bold),
+      elevation: 4,
+      child: Container(
+        decoration: BoxDecoration(
+          borderRadius: BorderRadius.circular(16),
+          gradient: LinearGradient(
+            colors: [Color(0xFF1A1A2E), Color(0xFF2A2A4E)],
+            begin: Alignment.topLeft,
+            end: Alignment.bottomRight,
+          ),
+        ),
+        child: Padding(
+          padding: const EdgeInsets.all(16.0),
+          child: Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              CircleAvatar(
+                backgroundColor: neonPurple,
+                foregroundColor: Colors.white,
+                radius: 24,
+                child: Text(
+                  announcement.broadcasterName[0],
+                  style: TextStyle(fontWeight: FontWeight.bold),
+                ),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      children: [
+                        Text(
+                          announcement.broadcasterName,
+                          style: TextStyle(
+                            fontWeight: FontWeight.bold,
+                            color: Colors.white,
+                            fontSize: 16,
+                          ),
+                        ),
+                        const SizedBox(width: 4),
+                        Text(
+                          '@${announcement.broadcasterId.substring(0, 8)}',
+                          style: TextStyle(color: Colors.white70),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 4),
+                    Text(
+                      announcement.title,
+                      style: TextStyle(
+                        fontSize: 18,
+                        fontWeight: FontWeight.bold,
+                        color: neonBlue,
                       ),
-                      const SizedBox(width: 4),
-                      Text('@${announcement.broadcasterId.substring(0, 8)}'),
-                    ],
-                  ),
-                  const SizedBox(height: 4),
-                  Text(
-                    announcement.title,
-                    style: const TextStyle(fontSize: 16),
-                  ),
-                  const SizedBox(height: 4),
-                  Text(announcement.description),
-                  if (announcement.imageBytes != null)
-                    Padding(
-                      padding: const EdgeInsets.only(top: 8.0),
-                      child: GestureDetector(
-                        onTap: () => showDialog(
-                          context: context,
-                          builder: (_) => Dialog(
+                    ),
+                    const SizedBox(height: 4),
+                    Text(
+                      announcement.description,
+                      style: TextStyle(color: Colors.white70),
+                    ),
+                    if (announcement.imageBytes != null)
+                      Padding(
+                        padding: const EdgeInsets.only(top: 8.0),
+                        child: ClipRRect(
+                          borderRadius: BorderRadius.circular(12),
+                          child: GestureDetector(
+                            onTap: () => showDialog(
+                              context: context,
+                              builder: (_) => Dialog(
+                                backgroundColor: Colors.transparent,
+                                child: ClipRRect(
+                                  borderRadius: BorderRadius.circular(16),
+                                  child: Image.memory(announcement.imageBytes!),
+                                ),
+                              ),
+                            ),
                             child: Image.memory(
                               announcement.imageBytes!,
+                              height: 150,
+                              width: double.infinity,
+                              fit: BoxFit.cover,
                             ),
                           ),
                         ),
-                        child: Image.memory(
-                          announcement.imageBytes!,
-                          height: 150,
-                        ),
                       ),
-                    ),
-                  const SizedBox(height: 8),
-                  Row(
-                    mainAxisAlignment: MainAxisAlignment.end,
-                    children: [
-                      if (!isCreated)
+                    const SizedBox(height: 12),
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.end,
+                      children: [
+                        if (!isCreated)
+                          IconButton(
+                            tooltip: 'Appeler',
+                            icon: Icon(Icons.call, color: neonBlue),
+                            onPressed: () async {
+                              try {
+                                await Provider.of<AnnouncementProvider>(
+                                  context,
+                                  listen: false,
+                                ).initiateCall(
+                                  announcement.broadcasterId,
+                                  announcement.deviceAddress,
+                                );
+                                ScaffoldMessenger.of(context).showSnackBar(
+                                  SnackBar(content: Text('Appel initié')),
+                                );
+                              } catch (e) {
+                                ScaffoldMessenger.of(context).showSnackBar(
+                                  SnackBar(content: Text('Erreur : $e')),
+                                );
+                              }
+                            },
+                          ),
                         IconButton(
-                          tooltip: 'Appeler',
-                          icon: const Icon(Icons.call),
-                          onPressed: () async {
-                            try {
-                              await Provider.of<AnnouncementProvider>(
+                          tooltip: 'Supprimer',
+                          icon: Icon(
+                            Icons.delete_forever,
+                            color: Colors.redAccent,
+                          ),
+                          onPressed: () {
+                            if (isCreated) {
+                              Provider.of<AnnouncementProvider>(
                                 context,
                                 listen: false,
-                              ).initiateCall(
-                                announcement.broadcasterId,
-                                announcement.deviceAddress,
-                              );
-                              ScaffoldMessenger.of(context).showSnackBar(
-                                const SnackBar(content: Text('Appel initié')),
-                              );
-                            } catch (e) {
-                              ScaffoldMessenger.of(context).showSnackBar(
-                                SnackBar(content: Text('Erreur : $e')),
-                              );
+                              ).deleteCreatedAnnouncement(announcement.id);
+                            } else {
+                              Provider.of<AnnouncementProvider>(
+                                context,
+                                listen: false,
+                              ).deleteReceivedAnnouncement(announcement.id);
                             }
                           },
                         ),
-                      IconButton(
-                        tooltip: 'Supprimer',
-                        icon: const Icon(Icons.delete),
-                        onPressed: () {
-                          if (isCreated) {
-                            Provider.of<AnnouncementProvider>(
-                              context,
-                              listen: false,
-                            ).deleteCreatedAnnouncement(announcement.id);
-                          } else {
-                            Provider.of<AnnouncementProvider>(
-                              context,
-                              listen: false,
-                            ).deleteReceivedAnnouncement(announcement.id);
-                          }
-                        },
-                      ),
-                    ],
-                  ),
-                ],
+                      ],
+                    ),
+                  ],
+                ),
               ),
-          ],
+            ],
+          ),
         ),
       ),
     );
@@ -683,74 +794,147 @@ class _CreateAnnouncementScreenState extends State<CreateAnnouncementScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: const Text('Créer une annonce')),
-      body: Padding(
-        padding: const EdgeInsets.all(16.0),
-        child: Column(
-          children: [
-            TextField(
-              controller: _titleController,
-              focusNode: _titleFocusNode,
-              decoration: const InputDecoration(labelText: 'Titre'),
-              onSubmitted: (_) =>
-                  FocusScope.of(context).requestFocus(_descriptionFocusNode),
-            ),
-            TextField(
-              controller: _descriptionController,
-              focusNode: _descriptionFocusNode,
-              decoration: const InputDecoration(labelText: 'Description'),
-            ),
-            const SizedBox(height: 16),
-            Row(
-              mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-              children: [
-                ElevatedButton.icon(
-                  onPressed: () => _pickImage(ImageSource.gallery),
-                  icon: const Icon(Icons.photo),
-                  label: const Text('Galerie'),
+      appBar: AppBar(
+        title: Text('Créer une annonce', style: TextStyle(color: neonBlue)),
+        backgroundColor: darkBackground,
+      ),
+      body: Container(
+        decoration: BoxDecoration(
+          gradient: LinearGradient(
+            colors: [darkBackground, Color(0xFF141432)],
+            begin: Alignment.topCenter,
+            end: Alignment.bottomCenter,
+          ),
+        ),
+        child: Padding(
+          padding: const EdgeInsets.all(16.0),
+          child: Column(
+            children: [
+              TextField(
+                controller: _titleController,
+                focusNode: _titleFocusNode,
+                decoration: InputDecoration(
+                  labelText: 'Titre',
+                  labelStyle: TextStyle(color: neonBlue),
+                  filled: true,
+                  fillColor: Color(0xFF1A1A2E),
+                  border: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(12),
+                    borderSide: BorderSide(color: neonBlue.withOpacity(0.3)),
+                  ),
+                  enabledBorder: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(12),
+                    borderSide: BorderSide(color: neonBlue.withOpacity(0.3)),
+                  ),
+                  focusedBorder: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(12),
+                    borderSide: BorderSide(color: neonBlue),
+                  ),
                 ),
-                ElevatedButton.icon(
-                  onPressed: () => _pickImage(ImageSource.camera),
-                  icon: const Icon(Icons.camera_alt),
-                  label: const Text('Camera'),
+                style: TextStyle(color: Colors.white),
+                onSubmitted: (_) =>
+                    FocusScope.of(context).requestFocus(_descriptionFocusNode),
+              ),
+              const SizedBox(height: 16),
+              TextField(
+                controller: _descriptionController,
+                focusNode: _descriptionFocusNode,
+                decoration: InputDecoration(
+                  labelText: 'Description',
+                  labelStyle: TextStyle(color: neonBlue),
+                  filled: true,
+                  fillColor: Color(0xFF1A1A2E),
+                  border: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(12),
+                    borderSide: BorderSide(color: neonBlue.withOpacity(0.3)),
+                  ),
+                  enabledBorder: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(12),
+                    borderSide: BorderSide(color: neonBlue.withOpacity(0.3)),
+                  ),
+                  focusedBorder: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(12),
+                    borderSide: BorderSide(color: neonBlue),
+                  ),
                 ),
-              ],
-            ),
-            if (_imageFile != null)
-              Padding(
-                padding: const EdgeInsets.only(top: 16.0),
-                child: Image.file(
-                  File(_imageFile!.path),
-                  height: 150,
+                style: TextStyle(color: Colors.white),
+                maxLines: 4,
+              ),
+              const SizedBox(height: 16),
+              Row(
+                mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+                children: [
+                  ElevatedButton.icon(
+                    onPressed: () => _pickImage(ImageSource.gallery),
+                    icon: Icon(Icons.photo, color: Colors.white),
+                    label: Text('Galerie'),
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: neonPurple,
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                    ),
+                  ),
+                  ElevatedButton.icon(
+                    onPressed: () => _pickImage(ImageSource.camera),
+                    icon: Icon(Icons.camera_alt, color: Colors.white),
+                    label: Text('Camera'),
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: neonPurple,
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+              if (_imageFile != null)
+                Padding(
+                  padding: const EdgeInsets.only(top: 16.0),
+                  child: ClipRRect(
+                    borderRadius: BorderRadius.circular(12),
+                    child: Image.file(
+                      File(_imageFile!.path),
+                      height: 150,
+                      fit: BoxFit.cover,
+                    ),
+                  ),
+                ),
+              const SizedBox(height: 16),
+              Consumer<AnnouncementProvider>(
+                builder: (context, provider, _) => ElevatedButton(
+                  onPressed: provider.isInitialized && provider.isServerStarted
+                      ? () async {
+                          FocusScope.of(context).unfocus();
+                          final announcement = Announcement(
+                            id: Uuid().v4(),
+                            title: _titleController.text,
+                            description: _descriptionController.text,
+                            broadcasterId: provider.deviceId,
+                            broadcasterName: provider.deviceName,
+                            deviceAddress: provider.peers.isNotEmpty
+                                ? provider.peers[0].id
+                                : '',
+                            imageBase64: _imageFile != null
+                                ? base64Encode(await _imageFile!.readAsBytes())
+                                : null,
+                          );
+                          provider.addCreatedAnnouncement(announcement);
+                          Navigator.pop(context);
+                        }
+                      : null,
+                  child: Text('Diffuser', style: TextStyle(fontSize: 16)),
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: neonBlue,
+                    padding: EdgeInsets.symmetric(horizontal: 32, vertical: 16),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                  ),
                 ),
               ),
-            const SizedBox(height: 16),
-            Consumer<AnnouncementProvider>(
-              builder: (context, provider, _) => ElevatedButton(
-                onPressed: provider.isInitialized && provider.isServerStarted
-                    ? () async {
-                        FocusScope.of(context).unfocus();
-                        final announcement = Announcement(
-                          id: Uuid().v4(),
-                          title: _titleController.text,
-                          description: _descriptionController.text,
-                          broadcasterId: provider.deviceId,
-                          broadcasterName: provider.deviceName,
-                          deviceAddress: provider.peers.isNotEmpty
-                              ? provider.peers[0].id
-                              : '',
-                          imageBase64: _imageFile != null
-                              ? base64Encode(await _imageFile!.readAsBytes())
-                              : null,
-                        );
-                        provider.addCreatedAnnouncement(announcement);
-                        Navigator.pop(context);
-                      }
-                    : null,
-                child: const Text('Diffuser'),
-              ),
-            ),
-          ],
+            ],
+          ),
         ),
       ),
     );
