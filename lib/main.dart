@@ -27,6 +27,7 @@ class Announcement {
   final String broadcasterName;
   final String deviceAddress;
   final String? imageBase64;
+  final String category; // Nouvelle propriété pour la catégorie
   Uint8List? _imageBytes;
 
   Uint8List? get imageBytes {
@@ -44,6 +45,7 @@ class Announcement {
     required this.broadcasterName,
     required this.deviceAddress,
     this.imageBase64,
+    required this.category,
   });
 
   Map<String, dynamic> toJson() => {
@@ -54,6 +56,7 @@ class Announcement {
     'broadcasterName': broadcasterName,
     'deviceAddress': deviceAddress,
     'imageBase64': imageBase64,
+    'category': category,
     'type': 'announcement',
   };
 
@@ -65,6 +68,7 @@ class Announcement {
     broadcasterName: json['broadcasterName'],
     deviceAddress: json['deviceAddress'],
     imageBase64: json['imageBase64'],
+    category: json['category'] ?? 'Autres',
   );
 }
 
@@ -80,6 +84,28 @@ class AnnouncementProvider with ChangeNotifier {
   bool _isInitialized = false;
   bool _isServerStarted = false;
   final Completer<void> _initCompleter = Completer<void>();
+  Set<String> _selectedCategories = {
+    'Autres',
+  }; // Catégories sélectionnées pour le filtrage
+
+  static const List<String> categories = [
+    'Vente',
+    'Immobilier',
+    'Véhicules',
+    'Services',
+    'Emploi',
+    'Rencontres',
+    'Fêtes',
+    'Dons',
+    'Restauration',
+    'Loisirs',
+    'Animaux',
+    'Perdu/Trouvé',
+    'Éducation',
+    'Santé/Bien-être',
+    'Voyages',
+    'Autres',
+  ];
 
   Future<void> get initializationDone => _initCompleter.future;
 
@@ -89,10 +115,18 @@ class AnnouncementProvider with ChangeNotifier {
   static const MethodChannel _channel = MethodChannel('xchange/wifi_settings');
 
   List<Announcement> get createdAnnouncements => _createdAnnouncements;
-  List<Announcement> get receivedAnnouncements => _receivedAnnouncements;
+  List<Announcement> get receivedAnnouncements => _receivedAnnouncements
+      .where((ann) => _selectedCategories.contains(ann.category))
+      .toList();
+  Set<String> get selectedCategories => _selectedCategories;
 
   AnnouncementProvider() {
     _init();
+  }
+
+  void updateSelectedCategories(Set<String> newCategories) {
+    _selectedCategories = newCategories.isNotEmpty ? newCategories : {'Autres'};
+    notifyListeners();
   }
 
   Future<void> _init() async {
@@ -257,10 +291,23 @@ class AnnouncementProvider with ChangeNotifier {
     _broadcastAnnouncement(announcement);
   }
 
+  void updateCreatedAnnouncement(Announcement updatedAnnouncement) {
+    final index = _createdAnnouncements.indexWhere(
+      (ann) => ann.id == updatedAnnouncement.id,
+    );
+    if (index != -1) {
+      _createdAnnouncements[index] = updatedAnnouncement;
+      notifyListeners();
+      _broadcastAnnouncement(updatedAnnouncement);
+    }
+  }
+
   void addReceivedAnnouncement(Announcement announcement) {
     _receivedAnnouncements.add(announcement);
     notifyListeners();
-    _showNotification(announcement);
+    if (_selectedCategories.contains(announcement.category)) {
+      _showNotification(announcement);
+    }
   }
 
   void deleteCreatedAnnouncement(String id) {
@@ -518,6 +565,17 @@ class HomeScreen extends StatelessWidget {
       appBar: AppBar(
         title: Text('xchange', style: TextStyle(color: neonBlue)),
         backgroundColor: darkBackground,
+        actions: [
+          IconButton(
+            icon: Icon(Icons.filter_list, color: neonBlue),
+            onPressed: () {
+              Navigator.push(
+                context,
+                MaterialPageRoute(builder: (context) => CategoryFilterScreen()),
+              );
+            },
+          ),
+        ],
       ),
       body: Container(
         decoration: BoxDecoration(
@@ -608,6 +666,78 @@ class HomeScreen extends StatelessWidget {
   }
 }
 
+class CategoryFilterScreen extends StatefulWidget {
+  @override
+  _CategoryFilterScreenState createState() => _CategoryFilterScreenState();
+}
+
+class _CategoryFilterScreenState extends State<CategoryFilterScreen> {
+  late Set<String> _tempSelectedCategories;
+
+  @override
+  void initState() {
+    super.initState();
+    final provider = Provider.of<AnnouncementProvider>(context, listen: false);
+    _tempSelectedCategories = Set.from(provider.selectedCategories);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      appBar: AppBar(
+        title: Text(
+          'Filtrer les catégories',
+          style: TextStyle(color: neonBlue),
+        ),
+        backgroundColor: darkBackground,
+        actions: [
+          TextButton(
+            onPressed: () {
+              Provider.of<AnnouncementProvider>(
+                context,
+                listen: false,
+              ).updateSelectedCategories(_tempSelectedCategories);
+              Navigator.pop(context);
+            },
+            child: Text('Appliquer', style: TextStyle(color: neonBlue)),
+          ),
+        ],
+      ),
+      body: Container(
+        decoration: BoxDecoration(
+          gradient: LinearGradient(
+            colors: [darkBackground, Color(0xFF141432)],
+            begin: Alignment.topCenter,
+            end: Alignment.bottomCenter,
+          ),
+        ),
+        child: ListView.builder(
+          padding: EdgeInsets.all(16),
+          itemCount: AnnouncementProvider.categories.length,
+          itemBuilder: (context, index) {
+            final category = AnnouncementProvider.categories[index];
+            return CheckboxListTile(
+              title: Text(category, style: TextStyle(color: Colors.white)),
+              value: _tempSelectedCategories.contains(category),
+              onChanged: (bool? value) {
+                setState(() {
+                  if (value == true) {
+                    _tempSelectedCategories.add(category);
+                  } else {
+                    _tempSelectedCategories.remove(category);
+                  }
+                });
+              },
+              checkColor: Colors.white,
+              activeColor: neonBlue,
+            );
+          },
+        ),
+      ),
+    );
+  }
+}
+
 class TweetLikeAnnouncement extends StatelessWidget {
   final Announcement announcement;
   final bool isCreated;
@@ -681,6 +811,14 @@ class TweetLikeAnnouncement extends StatelessWidget {
                       announcement.description,
                       style: TextStyle(color: Colors.white70),
                     ),
+                    const SizedBox(height: 4),
+                    Text(
+                      'Catégorie: ${announcement.category}',
+                      style: TextStyle(
+                        color: neonPurple,
+                        fontStyle: FontStyle.italic,
+                      ),
+                    ),
                     if (announcement.imageBytes != null)
                       Padding(
                         padding: const EdgeInsets.only(top: 8.0),
@@ -733,6 +871,22 @@ class TweetLikeAnnouncement extends StatelessWidget {
                               }
                             },
                           ),
+                        if (isCreated)
+                          IconButton(
+                            tooltip: 'Modifier',
+                            icon: Icon(Icons.edit, color: neonBlue),
+                            onPressed: () {
+                              Navigator.push(
+                                context,
+                                MaterialPageRoute(
+                                  builder: (context) =>
+                                      CreateAnnouncementScreen(
+                                        announcement: announcement,
+                                      ),
+                                ),
+                              );
+                            },
+                          ),
                         IconButton(
                           tooltip: 'Supprimer',
                           icon: Icon(
@@ -767,7 +921,9 @@ class TweetLikeAnnouncement extends StatelessWidget {
 }
 
 class CreateAnnouncementScreen extends StatefulWidget {
-  const CreateAnnouncementScreen({super.key});
+  final Announcement? announcement;
+
+  const CreateAnnouncementScreen({super.key, this.announcement});
 
   @override
   State<CreateAnnouncementScreen> createState() =>
@@ -781,6 +937,21 @@ class _CreateAnnouncementScreenState extends State<CreateAnnouncementScreen> {
   final _descriptionFocusNode = FocusNode();
   final ImagePicker _picker = ImagePicker();
   XFile? _imageFile;
+  String _selectedCategory = AnnouncementProvider.categories[0];
+
+  @override
+  void initState() {
+    super.initState();
+    if (widget.announcement != null) {
+      _titleController.text = widget.announcement!.title;
+      _descriptionController.text = widget.announcement!.description;
+      _selectedCategory = widget.announcement!.category;
+      if (widget.announcement!.imageBase64 != null) {
+        // Les images existantes ne sont pas modifiables directement via XFile
+        // On garde l'imageBase64 pour la réutilisation
+      }
+    }
+  }
 
   Future<void> _pickImage(ImageSource source) async {
     final picked = await _picker.pickImage(source: source);
@@ -795,7 +966,12 @@ class _CreateAnnouncementScreenState extends State<CreateAnnouncementScreen> {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: Text('Créer une annonce', style: TextStyle(color: neonBlue)),
+        title: Text(
+          widget.announcement == null
+              ? 'Créer une annonce'
+              : 'Modifier une annonce',
+          style: TextStyle(color: neonBlue),
+        ),
         backgroundColor: darkBackground,
       ),
       body: Container(
@@ -861,6 +1037,43 @@ class _CreateAnnouncementScreenState extends State<CreateAnnouncementScreen> {
                 maxLines: 4,
               ),
               const SizedBox(height: 16),
+              DropdownButtonFormField<String>(
+                value: _selectedCategory,
+                decoration: InputDecoration(
+                  labelText: 'Catégorie',
+                  labelStyle: TextStyle(color: neonBlue),
+                  filled: true,
+                  fillColor: Color(0xFF1A1A2E),
+                  border: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(12),
+                    borderSide: BorderSide(color: neonBlue.withOpacity(0.3)),
+                  ),
+                  enabledBorder: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(12),
+                    borderSide: BorderSide(color: neonBlue.withOpacity(0.3)),
+                  ),
+                  focusedBorder: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(12),
+                    borderSide: BorderSide(color: neonBlue),
+                  ),
+                ),
+                dropdownColor: Color(0xFF1A1A2E),
+                style: TextStyle(color: Colors.white),
+                items: AnnouncementProvider.categories
+                    .map(
+                      (category) => DropdownMenuItem(
+                        value: category,
+                        child: Text(category),
+                      ),
+                    )
+                    .toList(),
+                onChanged: (value) {
+                  setState(() {
+                    _selectedCategory = value!;
+                  });
+                },
+              ),
+              const SizedBox(height: 16),
               Row(
                 mainAxisAlignment: MainAxisAlignment.spaceEvenly,
                 children: [
@@ -900,6 +1113,19 @@ class _CreateAnnouncementScreenState extends State<CreateAnnouncementScreen> {
                     ),
                   ),
                 ),
+              if (widget.announcement?.imageBase64 != null &&
+                  _imageFile == null)
+                Padding(
+                  padding: const EdgeInsets.only(top: 16.0),
+                  child: ClipRRect(
+                    borderRadius: BorderRadius.circular(12),
+                    child: Image.memory(
+                      base64Decode(widget.announcement!.imageBase64!),
+                      height: 150,
+                      fit: BoxFit.cover,
+                    ),
+                  ),
+                ),
               const SizedBox(height: 16),
               Consumer<AnnouncementProvider>(
                 builder: (context, provider, _) => ElevatedButton(
@@ -907,7 +1133,7 @@ class _CreateAnnouncementScreenState extends State<CreateAnnouncementScreen> {
                       ? () async {
                           FocusScope.of(context).unfocus();
                           final announcement = Announcement(
-                            id: Uuid().v4(),
+                            id: widget.announcement?.id ?? Uuid().v4(),
                             title: _titleController.text,
                             description: _descriptionController.text,
                             broadcasterId: provider.deviceId,
@@ -917,13 +1143,21 @@ class _CreateAnnouncementScreenState extends State<CreateAnnouncementScreen> {
                                 : '',
                             imageBase64: _imageFile != null
                                 ? base64Encode(await _imageFile!.readAsBytes())
-                                : null,
+                                : widget.announcement?.imageBase64,
+                            category: _selectedCategory,
                           );
-                          provider.addCreatedAnnouncement(announcement);
+                          if (widget.announcement == null) {
+                            provider.addCreatedAnnouncement(announcement);
+                          } else {
+                            provider.updateCreatedAnnouncement(announcement);
+                          }
                           Navigator.pop(context);
                         }
                       : null,
-                  child: Text('Diffuser', style: TextStyle(fontSize: 16)),
+                  child: Text(
+                    widget.announcement == null ? 'Diffuser' : 'Mettre à jour',
+                    style: TextStyle(fontSize: 16),
+                  ),
                   style: ElevatedButton.styleFrom(
                     backgroundColor: neonBlue,
                     padding: EdgeInsets.symmetric(horizontal: 32, vertical: 16),
