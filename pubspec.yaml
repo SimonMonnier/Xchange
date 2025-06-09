@@ -9,6 +9,7 @@ dependencies:
   provider: ^6.0.0
   flutter_local_notifications: ^17.0.0
   permission_handler: ^11.0.0
+  device_info_plus: ^11.4.0
   uuid: ^4.0.0
   flutter_webrtc: ^0.14.1
   flutter_p2p_connection: ^3.0.0
