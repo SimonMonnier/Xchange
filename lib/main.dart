@@ -24,6 +24,14 @@ class Announcement {
   final String broadcasterName;
   final String deviceAddress;
   final String? imageBase64;
+  Uint8List? _imageBytes;
+
+  Uint8List? get imageBytes {
+    if (_imageBytes == null && imageBase64 != null) {
+      _imageBytes = base64Decode(imageBase64!);
+    }
+    return _imageBytes;
+  }
 
   Announcement({
     required this.id,
@@ -574,7 +582,7 @@ class TweetLikeAnnouncement extends StatelessWidget {
                   ),
                   const SizedBox(height: 4),
                   Text(announcement.description),
-                  if (announcement.imageBase64 != null)
+                  if (announcement.imageBytes != null)
                     Padding(
                       padding: const EdgeInsets.only(top: 8.0),
                       child: GestureDetector(
@@ -582,66 +590,66 @@ class TweetLikeAnnouncement extends StatelessWidget {
                           context: context,
                           builder: (_) => Dialog(
                             child: Image.memory(
-                              base64Decode(announcement.imageBase64!),
+                              announcement.imageBytes!,
                             ),
                           ),
                         ),
                         child: Image.memory(
-                          base64Decode(announcement.imageBase64!),
+                          announcement.imageBytes!,
                           height: 150,
                         ),
                       ),
                     ),
                   const SizedBox(height: 8),
-                  if (isCreated)
-                    IconButton(
-                      icon: const Icon(Icons.delete),
-                      onPressed: () {
-                        Provider.of<AnnouncementProvider>(
-                          context,
-                          listen: false,
-                        ).deleteCreatedAnnouncement(announcement.id);
-                      },
-                    ),
-                  if (!isCreated)
-                    Row(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        IconButton(
-                          icon: const Icon(Icons.call),
-                          onPressed: () async {
-                            try {
-                              await Provider.of<AnnouncementProvider>(
-                                context,
-                                listen: false,
-                              ).initiateCall(
-                                announcement.broadcasterId,
-                                announcement.deviceAddress,
-                              );
-                              ScaffoldMessenger.of(context).showSnackBar(
-                                const SnackBar(content: Text('Appel initié')),
-                              );
-                            } catch (e) {
-                              ScaffoldMessenger.of(context).showSnackBar(
-                                SnackBar(content: Text('Erreur : $e')),
-                              );
-                            }
-                          },
-                        ),
-                        IconButton(
-                          icon: const Icon(Icons.delete),
-                          onPressed: () {
-                            Provider.of<AnnouncementProvider>(
-                              context,
-                              listen: false,
-                            ).deleteReceivedAnnouncement(announcement.id);
-                          },
-                        ),
-                      ],
-                    ),
                 ],
               ),
             ),
+            if (isCreated)
+              IconButton(
+                icon: const Icon(Icons.delete),
+                onPressed: () {
+                  Provider.of<AnnouncementProvider>(
+                    context,
+                    listen: false,
+                  ).deleteCreatedAnnouncement(announcement.id);
+                },
+              ),
+            if (!isCreated)
+              Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  IconButton(
+                    icon: const Icon(Icons.call),
+                    onPressed: () async {
+                      try {
+                        await Provider.of<AnnouncementProvider>(
+                          context,
+                          listen: false,
+                        ).initiateCall(
+                          announcement.broadcasterId,
+                          announcement.deviceAddress,
+                        );
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          const SnackBar(content: Text('Appel initié')),
+                        );
+                      } catch (e) {
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          SnackBar(content: Text('Erreur : $e')),
+                        );
+                      }
+                    },
+                  ),
+                  IconButton(
+                    icon: const Icon(Icons.delete),
+                    onPressed: () {
+                      Provider.of<AnnouncementProvider>(
+                        context,
+                        listen: false,
+                      ).deleteReceivedAnnouncement(announcement.id);
+                    },
+                  ),
+                ],
+              ),
           ],
         ),
       ),
