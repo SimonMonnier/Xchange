@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:convert';
+import 'dart:developer' as developer;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
@@ -27,7 +28,7 @@ class Announcement {
   final String broadcasterName;
   final String deviceAddress;
   final String? imageBase64;
-  final String category; // Nouvelle propriété pour la catégorie
+  final String category;
   Uint8List? _imageBytes;
 
   Uint8List? get imageBytes {
@@ -75,7 +76,7 @@ class Announcement {
 class AnnouncementProvider with ChangeNotifier {
   List<Announcement> _createdAnnouncements = [];
   List<Announcement> _receivedAnnouncements = [];
-  String deviceId = Uuid().v4();
+  final String deviceId = const Uuid().v4();
   String deviceName = 'Utilisateur';
   final FlutterP2pHost p2p = FlutterP2pHost();
   List<P2pClientInfo> peers = [];
@@ -83,10 +84,8 @@ class AnnouncementProvider with ChangeNotifier {
   MediaStream? _localStream;
   bool _isInitialized = false;
   bool _isServerStarted = false;
-  final Completer<void> _initCompleter = Completer<void>();
-  Set<String> _selectedCategories = {
-    'Autres',
-  }; // Catégories sélectionnées pour le filtrage
+  Completer<void>? _completer;
+  Set<String> _selectedCategories = {'Autres'};
 
   static const List<String> categories = [
     'Vente',
@@ -107,11 +106,13 @@ class AnnouncementProvider with ChangeNotifier {
     'Autres',
   ];
 
-  Future<void> get initializationDone => _initCompleter.future;
+  Future<void> get initializationDone {
+    _completer ??= Completer<void>();
+    return _completer!.future;
+  }
 
   bool get isInitialized => _isInitialized;
   bool get isServerStarted => _isServerStarted;
-  String? _downloadPath;
   static const MethodChannel _channel = MethodChannel('xchange/wifi_settings');
 
   List<Announcement> get createdAnnouncements => _createdAnnouncements;
@@ -121,7 +122,7 @@ class AnnouncementProvider with ChangeNotifier {
   Set<String> get selectedCategories => _selectedCategories;
 
   AnnouncementProvider() {
-    _init();
+    initialize();
   }
 
   void updateSelectedCategories(Set<String> newCategories) {
@@ -129,10 +130,7 @@ class AnnouncementProvider with ChangeNotifier {
     notifyListeners();
   }
 
-  Future<void> _init() async {
-    final directory = await getApplicationDocumentsDirectory();
-    _downloadPath = directory.path;
-
+  Future<void> initialize() async {
     final deviceInfo = DeviceInfoPlugin();
     final androidInfo = Platform.isAndroid
         ? await deviceInfo.androidInfo
@@ -152,10 +150,12 @@ class AnnouncementProvider with ChangeNotifier {
     }
 
     final statuses = await permissions.request();
+    bool allPermissionsGranted = true;
 
     statuses.forEach((permission, status) {
       if (!status.isGranted) {
-        print('Permission manquante: $permission');
+        developer.log('Missing permission: $permission');
+        allPermissionsGranted = false;
       }
     });
 
@@ -163,125 +163,189 @@ class AnnouncementProvider with ChangeNotifier {
         ? statuses[Permission.nearbyWifiDevices]!.isGranted
         : true;
 
-    if (!statuses[Permission.location]!.isGranted ||
-        !hasNearbyPermission ||
-        !statuses[Permission.microphone]!.isGranted ||
-        !statuses[Permission.bluetoothScan]!.isGranted ||
-        !statuses[Permission.bluetoothConnect]!.isGranted ||
-        !statuses[Permission.notification]!.isGranted) {
-      print('Permissions nécessaires non accordées');
+    if (!allPermissionsGranted || !hasNearbyPermission) {
+      developer.log('Required permissions not granted');
       WidgetsBinding.instance.addPostFrameCallback((_) {
-        ScaffoldMessenger.of(navigatorKey.currentContext!).showSnackBar(
-          SnackBar(
-            content: Text(
-              'Veuillez accorder toutes les permissions nécessaires.',
+        final context = navigatorKey.currentContext;
+        if (context != null && context.mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: const Text(
+                'Please grant all necessary permissions (location, microphone, etc.) to use app features.',
+              ),
+              action: SnackBarAction(
+                label: 'Settings',
+                onPressed: () async {
+                  await openAppSettings();
+                  if (context.mounted) {
+                    await _retryInitialization(context);
+                  }
+                },
+              ),
             ),
-            action: SnackBarAction(
-              label: 'Paramètres',
-              onPressed: () => openAppSettings(),
-            ),
-          ),
-        );
+          );
+        }
       });
-      if (!_initCompleter.isCompleted) {
-        _initCompleter.complete();
+      if (_completer != null && !_completer!.isCompleted) {
+        _completer!.complete();
       }
       return;
     }
 
     int retries = 3;
     while (retries > 0 && !_isInitialized) {
-      print(
-        'Tentative d\'initialisation Wi-Fi Direct, retries restants: $retries',
+      developer.log(
+        'Attempting Wi-Fi Direct initialization, retries left: $retries',
       );
       try {
         p2p.initialize();
         await p2p.createGroup();
         _isServerStarted = true;
-        print('Groupe P2P créé');
+        developer.log('P2P group created');
 
-        p2p.streamReceivedTexts().listen((message) {
-          try {
-            final data = jsonDecode(message);
-            if (data['type'] == 'announcement') {
-              final announcement = Announcement.fromJson(data);
-              addReceivedAnnouncement(announcement);
-            } else if (data['type'] == 'offer') {
-              _handleOffer(data['sdp'], data['from'], data['to']);
-            } else if (data['type'] == 'answer') {
-              _peerConnection?.setRemoteDescription(
-                RTCSessionDescription(data['sdp'], 'answer'),
-              );
-            } else if (data['type'] == 'ice') {
-              _peerConnection?.addCandidate(
-                RTCIceCandidate(
-                  data['candidate'],
-                  data['sdpMid'],
-                  data['sdpMLineIndex'],
-                ),
-              );
-            } else if (data['type'] == 'delete_announcement') {
-              deleteReceivedAnnouncement(data['id']);
+        p2p.streamReceivedTexts().listen(
+          (message) {
+            try {
+              final data = jsonDecode(message);
+              if (data['type'] == 'announcement') {
+                final announcement = Announcement.fromJson(data);
+                addReceivedAnnouncement(announcement);
+              } else if (data['type'] == 'offer') {
+                _handleOffer(data['sdp'], data['from'], data['to']);
+              } else if (data['type'] == 'answer') {
+                _peerConnection?.setRemoteDescription(
+                  RTCSessionDescription(data['sdp'], 'answer'),
+                );
+              } else if (data['type'] == 'ice') {
+                _peerConnection?.addCandidate(
+                  RTCIceCandidate(
+                    data['candidate'],
+                    data['sdpMid'],
+                    data['sdpMLineIndex'],
+                  ),
+                );
+              } else if (data['type'] == 'delete_announcement') {
+                deleteReceivedAnnouncement(data['id']);
+              }
+            } catch (e) {
+              developer.log('Error processing received message: $e');
             }
-          } catch (e) {
-            print('Erreur lors du traitement du message reçu : $e');
-          }
-        });
+          },
+          onError: (e) {
+            developer.log('Error in streamReceivedTexts: $e');
+            if (e.toString().contains('SELinux')) {
+              developer.log(
+                'SELinux violation detected in flutter_p2p_connection',
+              );
+            }
+          },
+        );
 
-        p2p.streamClientList().listen((clientList) {
-          peers = clientList.where((c) => !c.isHost).toList();
-          notifyListeners();
-          for (var announcement in _createdAnnouncements) {
-            _broadcastAnnouncement(announcement);
-          }
-        });
+        p2p.streamClientList().listen(
+          (clientList) {
+            peers = clientList.where((c) => !c.isHost).toList();
+            notifyListeners();
+            for (var announcement in _createdAnnouncements) {
+              _broadcastAnnouncement(announcement);
+            }
+          },
+          onError: (e) {
+            developer.log('Error in streamClientList: $e');
+            if (e.toString().contains('SELinux')) {
+              developer.log(
+                'SELinux violation detected in flutter_p2p_connection',
+              );
+            }
+          },
+        );
 
         _isInitialized = true;
-        if (!_initCompleter.isCompleted) {
-          _initCompleter.complete();
+        if (_completer != null && !_completer!.isCompleted) {
+          _completer!.complete();
         }
       } catch (e) {
-        print('Erreur lors de l\'initialisation : $e');
+        developer.log('Initialization error: $e');
         retries--;
         if (e.toString().contains('BLUETOOTH_DISABLED')) {
           WidgetsBinding.instance.addPostFrameCallback((_) {
-            ScaffoldMessenger.of(navigatorKey.currentContext!).showSnackBar(
-              const SnackBar(
-                content: Text(
-                  'Veuillez activer le Bluetooth pour utiliser le Wi-Fi Direct.',
+            final context = navigatorKey.currentContext;
+            if (context != null && context.mounted) {
+              ScaffoldMessenger.of(context).showSnackBar(
+                const SnackBar(
+                  content: Text('Please enable Bluetooth to use Wi-Fi Direct.'),
                 ),
-              ),
-            );
+              );
+            }
           });
+        }
+        if (e.toString().contains('SELinux')) {
+          developer.log('SELinux violation detected during P2P initialization');
         }
         if (retries == 0) {
           WidgetsBinding.instance.addPostFrameCallback((_) {
-            ScaffoldMessenger.of(navigatorKey.currentContext!).showSnackBar(
-              SnackBar(
-                content: Text(
-                  'Impossible d\'activer le Wi-Fi Direct. Veuillez vérifier les paramètres Wi-Fi.',
+            final context = navigatorKey.currentContext;
+            if (context != null && context.mounted) {
+              ScaffoldMessenger.of(context).showSnackBar(
+                SnackBar(
+                  content: const Text(
+                    'Unable to activate Wi-Fi Direct. Please check Wi-Fi settings.',
+                  ),
+                  action: SnackBarAction(
+                    label: 'Open Wi-Fi Settings',
+                    onPressed: () async {
+                      try {
+                        await _channel.invokeMethod('openWifiSettings');
+                      } catch (e) {
+                        developer.log('Error opening Wi-Fi settings: $e');
+                      }
+                    },
+                  ),
                 ),
-                action: SnackBarAction(
-                  label: 'Ouvrir Paramètres Wi-Fi',
-                  onPressed: () async {
-                    try {
-                      await _channel.invokeMethod('openWifiSettings');
-                    } catch (e) {
-                      print(
-                        'Erreur lors de l\'ouverture des paramètres Wi-Fi : $e',
-                      );
-                    }
-                  },
-                ),
-              ),
-            );
+              );
+            }
           });
         }
-        await Future.delayed(Duration(seconds: 2));
+        await Future.delayed(const Duration(seconds: 2));
       }
     }
-    if (!_initCompleter.isCompleted) {
-      _initCompleter.complete();
+    if (_completer != null && !_completer!.isCompleted) {
+      _completer!.complete();
+    }
+  }
+
+  Future<void> _retryInitialization(BuildContext context) async {
+    final statuses = await [
+      Permission.location,
+      Permission.microphone,
+      Permission.bluetoothScan,
+      Permission.bluetoothConnect,
+      Permission.notification,
+      if (Platform.isAndroid &&
+          (await DeviceInfoPlugin().androidInfo).version.sdkInt >= 33)
+        Permission.nearbyWifiDevices,
+    ].request();
+
+    bool allPermissionsGranted = statuses.values.every(
+      (status) => status.isGranted,
+    );
+
+    if (allPermissionsGranted && context.mounted) {
+      developer.log('All permissions granted, retrying initialization');
+      _isInitialized = false;
+      _isServerStarted = false;
+      _completer = Completer<void>();
+      await initialize();
+    } else if (context.mounted) {
+      developer.log('Some permissions still missing after retry');
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: const Text('Some permissions are still missing.'),
+          action: SnackBarAction(
+            label: 'Retry',
+            onPressed: () => _retryInitialization(context),
+          ),
+        ),
+      );
     }
   }
 
@@ -323,14 +387,17 @@ class AnnouncementProvider with ChangeNotifier {
 
   void _broadcastAnnouncement(Announcement announcement) async {
     if (!_isInitialized || !_isServerStarted) {
-      print('P2P non initialisé ou serveur non démarré');
+      developer.log('P2P not initialized or server not started');
       return;
     }
     try {
       await p2p.broadcastText(jsonEncode(announcement.toJson()));
-      print('Annonce broadcastée');
+      developer.log('Announcement broadcasted');
     } catch (e) {
-      print('Erreur lors de la diffusion : $e');
+      developer.log('Broadcast error: $e');
+      if (e.toString().contains('SELinux')) {
+        developer.log('SELinux violation detected during broadcast');
+      }
     }
   }
 
@@ -343,7 +410,10 @@ class AnnouncementProvider with ChangeNotifier {
         jsonEncode({'type': 'delete_announcement', 'id': id}),
       );
     } catch (e) {
-      print('Erreur lors de la diffusion de la suppression : $e');
+      developer.log('Deletion broadcast error: $e');
+      if (e.toString().contains('SELinux')) {
+        developer.log('SELinux violation detected during deletion');
+      }
     }
   }
 
@@ -367,7 +437,7 @@ class AnnouncementProvider with ChangeNotifier {
 
   Future<void> initiateCall(String peerId, String deviceAddress) async {
     if (!(await Permission.microphone.request().isGranted)) {
-      throw Exception('Permission microphone refusée');
+      throw Exception('Microphone permission denied');
     }
 
     final configuration = {
@@ -396,18 +466,16 @@ class AnnouncementProvider with ChangeNotifier {
       }),
     );
 
-    _peerConnection!.onIceCandidate = (candidate) {
-      if (candidate != null) {
-        p2p.broadcastText(
-          jsonEncode({
-            'type': 'ice',
-            'candidate': candidate.candidate,
-            'sdpMid': candidate.sdpMid,
-            'sdpMLineIndex': candidate.sdpMLineIndex,
-            'to': peerId,
-          }),
-        );
-      }
+    _peerConnection!.onIceCandidate = (RTCIceCandidate candidate) {
+      p2p.broadcastText(
+        jsonEncode({
+          'type': 'ice',
+          'candidate': candidate.candidate,
+          'sdpMid': candidate.sdpMid,
+          'sdpMLineIndex': candidate.sdpMLineIndex,
+          'to': peerId,
+        }),
+      );
     };
 
     _peerConnection!.onTrack = (event) {};
@@ -440,18 +508,16 @@ class AnnouncementProvider with ChangeNotifier {
       jsonEncode({'type': 'answer', 'sdp': answer.sdp, 'to': from}),
     );
 
-    _peerConnection!.onIceCandidate = (candidate) {
-      if (candidate != null) {
-        p2p.broadcastText(
-          jsonEncode({
-            'type': 'ice',
-            'candidate': candidate.candidate,
-            'sdpMid': candidate.sdpMid,
-            'sdpMLineIndex': candidate.sdpMLineIndex,
-            'to': from,
-          }),
-        );
-      }
+    _peerConnection!.onIceCandidate = (RTCIceCandidate candidate) {
+      p2p.broadcastText(
+        jsonEncode({
+          'type': 'ice',
+          'candidate': candidate.candidate,
+          'sdpMid': candidate.sdpMid,
+          'sdpMLineIndex': candidate.sdpMLineIndex,
+          'to': from,
+        }),
+      );
     };
   }
 
@@ -480,12 +546,14 @@ void main() async {
   runApp(
     ChangeNotifierProvider(
       create: (context) => AnnouncementProvider(),
-      child: XchangeApp(),
+      child: const XchangeApp(),
     ),
   );
 }
 
 class XchangeApp extends StatelessWidget {
+  const XchangeApp({super.key});
+
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
@@ -498,7 +566,7 @@ class XchangeApp extends StatelessWidget {
         ),
         primaryColor: neonBlue,
         scaffoldBackgroundColor: darkBackground,
-        appBarTheme: AppBarTheme(
+        appBarTheme: const AppBarTheme(
           backgroundColor: darkBackground,
           elevation: 0,
           titleTextStyle: TextStyle(
@@ -508,7 +576,7 @@ class XchangeApp extends StatelessWidget {
             color: neonBlue,
           ),
         ),
-        floatingActionButtonTheme: FloatingActionButtonThemeData(
+        floatingActionButtonTheme: const FloatingActionButtonThemeData(
           backgroundColor: neonPurple,
           foregroundColor: Colors.white,
           elevation: 8,
@@ -520,10 +588,10 @@ class XchangeApp extends StatelessWidget {
           color: Color(0xFF1A1A2E),
           shape: RoundedRectangleBorder(
             borderRadius: BorderRadius.circular(16),
-            side: BorderSide(color: neonBlue.withOpacity(0.2)),
+            side: BorderSide(color: neonBlue),
           ),
         ),
-        textTheme: TextTheme(
+        textTheme: const TextTheme(
           bodyLarge: TextStyle(color: Colors.white, fontFamily: 'Montserrat'),
           bodyMedium: TextStyle(
             color: Colors.white70,
@@ -542,8 +610,8 @@ class XchangeApp extends StatelessWidget {
             shape: RoundedRectangleBorder(
               borderRadius: BorderRadius.circular(12),
             ),
-            padding: EdgeInsets.symmetric(horizontal: 24, vertical: 12),
-            textStyle: TextStyle(
+            padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
+            textStyle: const TextStyle(
               fontFamily: 'Montserrat',
               fontWeight: FontWeight.bold,
             ),
@@ -563,22 +631,24 @@ class HomeScreen extends StatelessWidget {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: Text('xchange', style: TextStyle(color: neonBlue)),
+        title: const Text('xchange', style: TextStyle(color: neonBlue)),
         backgroundColor: darkBackground,
         actions: [
           IconButton(
-            icon: Icon(Icons.filter_list, color: neonBlue),
+            icon: const Icon(Icons.filter_list, color: neonBlue),
             onPressed: () {
               Navigator.push(
                 context,
-                MaterialPageRoute(builder: (context) => CategoryFilterScreen()),
+                MaterialPageRoute(
+                  builder: (context) => const CategoryFilterScreen(),
+                ),
               );
             },
           ),
         ],
       ),
       body: Container(
-        decoration: BoxDecoration(
+        decoration: const BoxDecoration(
           gradient: LinearGradient(
             colors: [darkBackground, Color(0xFF141432)],
             begin: Alignment.topCenter,
@@ -590,11 +660,11 @@ class HomeScreen extends StatelessWidget {
           child: Column(
             children: [
               Container(
-                margin: EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
                 decoration: BoxDecoration(
                   color: Color(0xFF1A1A2E),
                   borderRadius: BorderRadius.circular(12),
-                  border: Border.all(color: neonBlue.withOpacity(0.3)),
+                  border: Border.all(color: neonBlue.withValues()),
                 ),
                 child: TabBar(
                   labelColor: neonBlue,
@@ -613,35 +683,39 @@ class HomeScreen extends StatelessWidget {
                 child: TabBarView(
                   children: [
                     Consumer<AnnouncementProvider>(
-                      builder: (context, provider, child) {
+                      builder: (context, provider, _) {
                         return ListView.builder(
-                          padding: EdgeInsets.all(8),
+                          padding: const EdgeInsets.all(8),
                           itemCount: provider.receivedAnnouncements.length,
                           itemBuilder: (context, index) {
                             final announcement =
                                 provider.receivedAnnouncements[index];
-                            return TweetLikeAnnouncement(
-                              announcement: announcement,
-                            );
+                            return TweetLikeCard(announcement: announcement);
                           },
                         );
                       },
+                      child: const Center(
+                        child: Text('No announcements received'),
+                      ),
                     ),
                     Consumer<AnnouncementProvider>(
-                      builder: (context, provider, child) {
+                      builder: (context, provider, _) {
                         return ListView.builder(
-                          padding: EdgeInsets.all(8),
+                          padding: const EdgeInsets.all(8),
                           itemCount: provider.createdAnnouncements.length,
                           itemBuilder: (context, index) {
                             final announcement =
                                 provider.createdAnnouncements[index];
-                            return TweetLikeAnnouncement(
+                            return TweetLikeCard(
                               announcement: announcement,
                               isCreated: true,
                             );
                           },
                         );
                       },
+                      child: const Center(
+                        child: Text('No announcements created'),
+                      ),
                     ),
                   ],
                 ),
@@ -659,7 +733,7 @@ class HomeScreen extends StatelessWidget {
             ),
           );
         },
-        child: Icon(Icons.add),
+        child: const Icon(Icons.add),
         elevation: 8,
       ),
     );
@@ -667,8 +741,10 @@ class HomeScreen extends StatelessWidget {
 }
 
 class CategoryFilterScreen extends StatefulWidget {
+  const CategoryFilterScreen({super.key});
+
   @override
-  _CategoryFilterScreenState createState() => _CategoryFilterScreenState();
+  State<CategoryFilterScreen> createState() => _CategoryFilterScreenState();
 }
 
 class _CategoryFilterScreenState extends State<CategoryFilterScreen> {
@@ -685,7 +761,7 @@ class _CategoryFilterScreenState extends State<CategoryFilterScreen> {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: Text(
+        title: const Text(
           'Filtrer les catégories',
           style: TextStyle(color: neonBlue),
         ),
@@ -699,12 +775,12 @@ class _CategoryFilterScreenState extends State<CategoryFilterScreen> {
               ).updateSelectedCategories(_tempSelectedCategories);
               Navigator.pop(context);
             },
-            child: Text('Appliquer', style: TextStyle(color: neonBlue)),
+            child: const Text('Appliquer', style: TextStyle(color: neonBlue)),
           ),
         ],
       ),
       body: Container(
-        decoration: BoxDecoration(
+        decoration: const BoxDecoration(
           gradient: LinearGradient(
             colors: [darkBackground, Color(0xFF141432)],
             begin: Alignment.topCenter,
@@ -712,12 +788,15 @@ class _CategoryFilterScreenState extends State<CategoryFilterScreen> {
           ),
         ),
         child: ListView.builder(
-          padding: EdgeInsets.all(16),
+          padding: const EdgeInsets.all(16),
           itemCount: AnnouncementProvider.categories.length,
           itemBuilder: (context, index) {
             final category = AnnouncementProvider.categories[index];
             return CheckboxListTile(
-              title: Text(category, style: TextStyle(color: Colors.white)),
+              title: Text(
+                category,
+                style: const TextStyle(color: Colors.white),
+              ),
               value: _tempSelectedCategories.contains(category),
               onChanged: (bool? value) {
                 setState(() {
@@ -738,11 +817,11 @@ class _CategoryFilterScreenState extends State<CategoryFilterScreen> {
   }
 }
 
-class TweetLikeAnnouncement extends StatelessWidget {
+class TweetLikeCard extends StatelessWidget {
   final Announcement announcement;
   final bool isCreated;
 
-  const TweetLikeAnnouncement({
+  const TweetLikeCard({
     super.key,
     required this.announcement,
     this.isCreated = false,
@@ -755,7 +834,7 @@ class TweetLikeAnnouncement extends StatelessWidget {
       child: Container(
         decoration: BoxDecoration(
           borderRadius: BorderRadius.circular(16),
-          gradient: LinearGradient(
+          gradient: const LinearGradient(
             colors: [Color(0xFF1A1A2E), Color(0xFF2A2A4E)],
             begin: Alignment.topLeft,
             end: Alignment.bottomRight,
@@ -772,7 +851,7 @@ class TweetLikeAnnouncement extends StatelessWidget {
                 radius: 24,
                 child: Text(
                   announcement.broadcasterName[0],
-                  style: TextStyle(fontWeight: FontWeight.bold),
+                  style: const TextStyle(fontWeight: FontWeight.bold),
                 ),
               ),
               const SizedBox(width: 12),
@@ -784,7 +863,7 @@ class TweetLikeAnnouncement extends StatelessWidget {
                       children: [
                         Text(
                           announcement.broadcasterName,
-                          style: TextStyle(
+                          style: const TextStyle(
                             fontWeight: FontWeight.bold,
                             color: Colors.white,
                             fontSize: 16,
@@ -793,14 +872,14 @@ class TweetLikeAnnouncement extends StatelessWidget {
                         const SizedBox(width: 4),
                         Text(
                           '@${announcement.broadcasterId.substring(0, 8)}',
-                          style: TextStyle(color: Colors.white70),
+                          style: const TextStyle(color: Colors.white70),
                         ),
                       ],
                     ),
                     const SizedBox(height: 4),
                     Text(
                       announcement.title,
-                      style: TextStyle(
+                      style: const TextStyle(
                         fontSize: 18,
                         fontWeight: FontWeight.bold,
                         color: neonBlue,
@@ -809,12 +888,12 @@ class TweetLikeAnnouncement extends StatelessWidget {
                     const SizedBox(height: 4),
                     Text(
                       announcement.description,
-                      style: TextStyle(color: Colors.white70),
+                      style: const TextStyle(color: Colors.white70),
                     ),
                     const SizedBox(height: 4),
                     Text(
                       'Catégorie: ${announcement.category}',
-                      style: TextStyle(
+                      style: const TextStyle(
                         color: neonPurple,
                         fontStyle: FontStyle.italic,
                       ),
@@ -823,18 +902,18 @@ class TweetLikeAnnouncement extends StatelessWidget {
                       Padding(
                         padding: const EdgeInsets.only(top: 8.0),
                         child: ClipRRect(
-                          borderRadius: BorderRadius.circular(12),
+                          borderRadius: BorderRadius.circular(8),
                           child: GestureDetector(
-                            onTap: () => showDialog(
-                              context: context,
-                              builder: (_) => Dialog(
-                                backgroundColor: Colors.transparent,
-                                child: ClipRRect(
-                                  borderRadius: BorderRadius.circular(16),
-                                  child: Image.memory(announcement.imageBytes!),
+                            onTap: () {
+                              Navigator.push(
+                                context,
+                                MaterialPageRoute(
+                                  builder: (context) => ImageDetailScreen(
+                                    imageBytes: announcement.imageBytes!,
+                                  ),
                                 ),
-                              ),
-                            ),
+                              );
+                            },
                             child: Image.memory(
                               announcement.imageBytes!,
                               height: 150,
@@ -850,9 +929,10 @@ class TweetLikeAnnouncement extends StatelessWidget {
                       children: [
                         if (!isCreated)
                           IconButton(
-                            tooltip: 'Appeler',
-                            icon: Icon(Icons.call, color: neonBlue),
+                            tooltip: 'Call',
+                            icon: const Icon(Icons.call, color: neonBlue),
                             onPressed: () async {
+                              if (!context.mounted) return;
                               try {
                                 await Provider.of<AnnouncementProvider>(
                                   context,
@@ -862,19 +942,21 @@ class TweetLikeAnnouncement extends StatelessWidget {
                                   announcement.deviceAddress,
                                 );
                                 ScaffoldMessenger.of(context).showSnackBar(
-                                  SnackBar(content: Text('Appel initié')),
+                                  const SnackBar(
+                                    content: Text('Call initiated'),
+                                  ),
                                 );
                               } catch (e) {
                                 ScaffoldMessenger.of(context).showSnackBar(
-                                  SnackBar(content: Text('Erreur : $e')),
+                                  SnackBar(content: Text('Error: $e')),
                                 );
                               }
                             },
                           ),
                         if (isCreated)
                           IconButton(
-                            tooltip: 'Modifier',
-                            icon: Icon(Icons.edit, color: neonBlue),
+                            tooltip: 'Edit',
+                            icon: const Icon(Icons.edit, color: neonBlue),
                             onPressed: () {
                               Navigator.push(
                                 context,
@@ -888,8 +970,8 @@ class TweetLikeAnnouncement extends StatelessWidget {
                             },
                           ),
                         IconButton(
-                          tooltip: 'Supprimer',
-                          icon: Icon(
+                          tooltip: 'Delete',
+                          icon: const Icon(
                             Icons.delete_forever,
                             color: Colors.redAccent,
                           ),
@@ -920,6 +1002,21 @@ class TweetLikeAnnouncement extends StatelessWidget {
   }
 }
 
+class ImageDetailScreen extends StatelessWidget {
+  final Uint8List imageBytes;
+
+  const ImageDetailScreen({super.key, required this.imageBytes});
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      appBar: AppBar(backgroundColor: darkBackground),
+      backgroundColor: Colors.black,
+      body: Center(child: Image.memory(imageBytes)),
+    );
+  }
+}
+
 class CreateAnnouncementScreen extends StatefulWidget {
   final Announcement? announcement;
 
@@ -946,10 +1043,6 @@ class _CreateAnnouncementScreenState extends State<CreateAnnouncementScreen> {
       _titleController.text = widget.announcement!.title;
       _descriptionController.text = widget.announcement!.description;
       _selectedCategory = widget.announcement!.category;
-      if (widget.announcement!.imageBase64 != null) {
-        // Les images existantes ne sont pas modifiables directement via XFile
-        // On garde l'imageBase64 pour la réutilisation
-      }
     }
   }
 
@@ -968,14 +1061,14 @@ class _CreateAnnouncementScreenState extends State<CreateAnnouncementScreen> {
       appBar: AppBar(
         title: Text(
           widget.announcement == null
-              ? 'Créer une annonce'
-              : 'Modifier une annonce',
-          style: TextStyle(color: neonBlue),
+              ? 'Create Announcement'
+              : 'Edit Announcement',
+          style: const TextStyle(color: neonBlue),
         ),
         backgroundColor: darkBackground,
       ),
       body: Container(
-        decoration: BoxDecoration(
+        decoration: const BoxDecoration(
           gradient: LinearGradient(
             colors: [darkBackground, Color(0xFF141432)],
             begin: Alignment.topCenter,
@@ -990,24 +1083,24 @@ class _CreateAnnouncementScreenState extends State<CreateAnnouncementScreen> {
                 controller: _titleController,
                 focusNode: _titleFocusNode,
                 decoration: InputDecoration(
-                  labelText: 'Titre',
-                  labelStyle: TextStyle(color: neonBlue),
+                  labelText: 'Title',
+                  labelStyle: const TextStyle(color: neonBlue),
                   filled: true,
                   fillColor: Color(0xFF1A1A2E),
                   border: OutlineInputBorder(
                     borderRadius: BorderRadius.circular(12),
-                    borderSide: BorderSide(color: neonBlue.withOpacity(0.3)),
+                    borderSide: BorderSide(color: neonBlue.withValues()),
                   ),
                   enabledBorder: OutlineInputBorder(
                     borderRadius: BorderRadius.circular(12),
-                    borderSide: BorderSide(color: neonBlue.withOpacity(0.3)),
+                    borderSide: BorderSide(color: neonBlue.withValues()),
                   ),
                   focusedBorder: OutlineInputBorder(
                     borderRadius: BorderRadius.circular(12),
-                    borderSide: BorderSide(color: neonBlue),
+                    borderSide: const BorderSide(color: neonBlue),
                   ),
                 ),
-                style: TextStyle(color: Colors.white),
+                style: const TextStyle(color: Colors.white),
                 onSubmitted: (_) =>
                     FocusScope.of(context).requestFocus(_descriptionFocusNode),
               ),
@@ -1017,48 +1110,48 @@ class _CreateAnnouncementScreenState extends State<CreateAnnouncementScreen> {
                 focusNode: _descriptionFocusNode,
                 decoration: InputDecoration(
                   labelText: 'Description',
-                  labelStyle: TextStyle(color: neonBlue),
+                  labelStyle: const TextStyle(color: neonBlue),
                   filled: true,
                   fillColor: Color(0xFF1A1A2E),
                   border: OutlineInputBorder(
                     borderRadius: BorderRadius.circular(12),
-                    borderSide: BorderSide(color: neonBlue.withOpacity(0.3)),
+                    borderSide: BorderSide(color: neonBlue.withValues()),
                   ),
                   enabledBorder: OutlineInputBorder(
                     borderRadius: BorderRadius.circular(12),
-                    borderSide: BorderSide(color: neonBlue.withOpacity(0.3)),
+                    borderSide: BorderSide(color: neonBlue.withValues()),
                   ),
                   focusedBorder: OutlineInputBorder(
                     borderRadius: BorderRadius.circular(12),
-                    borderSide: BorderSide(color: neonBlue),
+                    borderSide: const BorderSide(color: neonBlue),
                   ),
                 ),
-                style: TextStyle(color: Colors.white),
+                style: const TextStyle(color: Colors.white),
                 maxLines: 4,
               ),
               const SizedBox(height: 16),
               DropdownButtonFormField<String>(
                 value: _selectedCategory,
                 decoration: InputDecoration(
-                  labelText: 'Catégorie',
-                  labelStyle: TextStyle(color: neonBlue),
+                  labelText: 'Category',
+                  labelStyle: const TextStyle(color: neonBlue),
                   filled: true,
                   fillColor: Color(0xFF1A1A2E),
                   border: OutlineInputBorder(
                     borderRadius: BorderRadius.circular(12),
-                    borderSide: BorderSide(color: neonBlue.withOpacity(0.3)),
+                    borderSide: BorderSide(color: neonBlue.withValues()),
                   ),
                   enabledBorder: OutlineInputBorder(
                     borderRadius: BorderRadius.circular(12),
-                    borderSide: BorderSide(color: neonBlue.withOpacity(0.3)),
+                    borderSide: BorderSide(color: neonBlue.withValues()),
                   ),
                   focusedBorder: OutlineInputBorder(
                     borderRadius: BorderRadius.circular(12),
-                    borderSide: BorderSide(color: neonBlue),
+                    borderSide: const BorderSide(color: neonBlue),
                   ),
                 ),
-                dropdownColor: Color(0xFF1A1A2E),
-                style: TextStyle(color: Colors.white),
+                dropdownColor: const Color(0xFF1A1A2E),
+                style: const TextStyle(color: Colors.white),
                 items: AnnouncementProvider.categories
                     .map(
                       (category) => DropdownMenuItem(
@@ -1079,8 +1172,8 @@ class _CreateAnnouncementScreenState extends State<CreateAnnouncementScreen> {
                 children: [
                   ElevatedButton.icon(
                     onPressed: () => _pickImage(ImageSource.gallery),
-                    icon: Icon(Icons.photo, color: Colors.white),
-                    label: Text('Galerie'),
+                    icon: const Icon(Icons.photo, color: Colors.white),
+                    label: const Text('Gallery'),
                     style: ElevatedButton.styleFrom(
                       backgroundColor: neonPurple,
                       shape: RoundedRectangleBorder(
@@ -1090,8 +1183,8 @@ class _CreateAnnouncementScreenState extends State<CreateAnnouncementScreen> {
                   ),
                   ElevatedButton.icon(
                     onPressed: () => _pickImage(ImageSource.camera),
-                    icon: Icon(Icons.camera_alt, color: Colors.white),
-                    label: Text('Camera'),
+                    icon: const Icon(Icons.camera_alt, color: Colors.white),
+                    label: const Text('Camera'),
                     style: ElevatedButton.styleFrom(
                       backgroundColor: neonPurple,
                       shape: RoundedRectangleBorder(
@@ -1103,9 +1196,9 @@ class _CreateAnnouncementScreenState extends State<CreateAnnouncementScreen> {
               ),
               if (_imageFile != null)
                 Padding(
-                  padding: const EdgeInsets.only(top: 16.0),
+                  padding: const EdgeInsets.only(top: 8.0),
                   child: ClipRRect(
-                    borderRadius: BorderRadius.circular(12),
+                    borderRadius: BorderRadius.circular(8),
                     child: Image.file(
                       File(_imageFile!.path),
                       height: 150,
@@ -1116,9 +1209,9 @@ class _CreateAnnouncementScreenState extends State<CreateAnnouncementScreen> {
               if (widget.announcement?.imageBase64 != null &&
                   _imageFile == null)
                 Padding(
-                  padding: const EdgeInsets.only(top: 16.0),
+                  padding: const EdgeInsets.only(top: 8.0),
                   child: ClipRRect(
-                    borderRadius: BorderRadius.circular(12),
+                    borderRadius: BorderRadius.circular(8),
                     child: Image.memory(
                       base64Decode(widget.announcement!.imageBase64!),
                       height: 150,
@@ -1131,9 +1224,10 @@ class _CreateAnnouncementScreenState extends State<CreateAnnouncementScreen> {
                 builder: (context, provider, _) => ElevatedButton(
                   onPressed: provider.isInitialized && provider.isServerStarted
                       ? () async {
+                          if (!context.mounted) return;
                           FocusScope.of(context).unfocus();
                           final announcement = Announcement(
-                            id: widget.announcement?.id ?? Uuid().v4(),
+                            id: widget.announcement?.id ?? const Uuid().v4(),
                             title: _titleController.text,
                             description: _descriptionController.text,
                             broadcasterId: provider.deviceId,
@@ -1154,16 +1248,19 @@ class _CreateAnnouncementScreenState extends State<CreateAnnouncementScreen> {
                           Navigator.pop(context);
                         }
                       : null,
-                  child: Text(
-                    widget.announcement == null ? 'Diffuser' : 'Mettre à jour',
-                    style: TextStyle(fontSize: 16),
-                  ),
                   style: ElevatedButton.styleFrom(
                     backgroundColor: neonBlue,
-                    padding: EdgeInsets.symmetric(horizontal: 32, vertical: 16),
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 32,
+                      vertical: 16,
+                    ),
                     shape: RoundedRectangleBorder(
                       borderRadius: BorderRadius.circular(12),
                     ),
+                  ),
+                  child: Text(
+                    widget.announcement == null ? 'Publish' : 'Update',
+                    style: const TextStyle(fontSize: 16),
                   ),
                 ),
               ),
