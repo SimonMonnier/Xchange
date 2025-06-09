@@ -58,6 +58,13 @@ class AnnouncementProvider with ChangeNotifier {
   MediaStream? _localStream;
   bool _isInitialized = false;
   bool _isServerStarted = false;
+  final Completer<void> _initCompleter = Completer<void>();
+
+  /// Future that completes once the P2P initialization process has finished.
+  Future<void> get initializationDone => _initCompleter.future;
+
+  bool get isInitialized => _isInitialized;
+  bool get isServerStarted => _isServerStarted;
   String? _downloadPath;
   static const MethodChannel _channel = MethodChannel('xchange/wifi_settings');
 
@@ -103,6 +110,9 @@ class AnnouncementProvider with ChangeNotifier {
           ),
         );
       });
+      if (!_initCompleter.isCompleted) {
+        _initCompleter.complete();
+      }
       return;
     }
 
@@ -159,6 +169,9 @@ class AnnouncementProvider with ChangeNotifier {
         });
 
         _isInitialized = true;
+        if (!_initCompleter.isCompleted) {
+          _initCompleter.complete();
+        }
       } catch (e) {
         print('Erreur lors de l\'initialisation : $e');
         retries--;
@@ -187,6 +200,9 @@ class AnnouncementProvider with ChangeNotifier {
         }
         await Future.delayed(Duration(seconds: 2));
       }
+    }
+    if (!_initCompleter.isCompleted) {
+      _initCompleter.complete();
     }
   }
 
@@ -586,27 +602,27 @@ class _CreateAnnouncementScreenState extends State<CreateAnnouncementScreen> {
               decoration: const InputDecoration(labelText: 'Description'),
             ),
             const SizedBox(height: 16),
-            ElevatedButton(
-              onPressed: () async {
-                FocusScope.of(context).unfocus();
-                final provider = Provider.of<AnnouncementProvider>(
-                  context,
-                  listen: false,
-                );
-                final announcement = Announcement(
-                  id: Uuid().v4(),
-                  title: _titleController.text,
-                  description: _descriptionController.text,
-                  broadcasterId: provider.deviceId,
-                  broadcasterName: provider.deviceName,
-                  deviceAddress: provider.peers.isNotEmpty
-                      ? provider.peers[0].id
-                      : '',
-                );
-                provider.addCreatedAnnouncement(announcement);
-                Navigator.pop(context);
-              },
-              child: const Text('Diffuser'),
+            Consumer<AnnouncementProvider>(
+              builder: (context, provider, _) => ElevatedButton(
+                onPressed: provider.isInitialized && provider.isServerStarted
+                    ? () async {
+                        FocusScope.of(context).unfocus();
+                        final announcement = Announcement(
+                          id: Uuid().v4(),
+                          title: _titleController.text,
+                          description: _descriptionController.text,
+                          broadcasterId: provider.deviceId,
+                          broadcasterName: provider.deviceName,
+                          deviceAddress: provider.peers.isNotEmpty
+                              ? provider.peers[0].id
+                              : '',
+                        );
+                        provider.addCreatedAnnouncement(announcement);
+                        Navigator.pop(context);
+                      }
+                    : null,
+                child: const Text('Diffuser'),
+              ),
             ),
           ],
         ),
