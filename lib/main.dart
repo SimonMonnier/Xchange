@@ -197,6 +197,16 @@ class AnnouncementProvider with ChangeNotifier {
       } catch (e) {
         print('Erreur lors de l\'initialisation : $e');
         retries--;
+        if (e.toString().contains('BLUETOOTH_DISABLED')) {
+          WidgetsBinding.instance.addPostFrameCallback((_) {
+            ScaffoldMessenger.of(navigatorKey.currentContext!).showSnackBar(
+              const SnackBar(
+                content:
+                    Text('Veuillez activer le Bluetooth pour utiliser le Wi-Fi Direct.'),
+              ),
+            );
+          });
+        }
         if (retries == 0) {
           WidgetsBinding.instance.addPostFrameCallback((_) {
             ScaffoldMessenger.of(navigatorKey.currentContext!).showSnackBar(
