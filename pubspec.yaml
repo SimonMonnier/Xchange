@@ -1,0 +1,18 @@
+name: xchange
+description: A new Flutter project.
+version: 1.0.0+1
+environment:
+  sdk: '^3.8.0'
+dependencies:
+  flutter:
+    sdk: flutter
+  provider: ^6.0.0
+  flutter_local_notifications: ^17.0.0
+  permission_handler: ^11.0.0
+  uuid: ^4.0.0
+  flutter_webrtc: ^0.11.6
+  flutter_p2p_connection: ^3.0.0
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^4.0.0
