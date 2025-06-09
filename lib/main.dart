@@ -13,6 +13,9 @@ import 'package:flutter_p2p_connection/flutter_p2p_connection.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:image_picker/image_picker.dart';
 
+/// Primary neon blue color used across the dark theme.
+const Color neonBlue = Color(0xFF1F51FF);
+
 class Announcement {
   final String id;
   final String title;
@@ -436,9 +439,19 @@ class XchangeApp extends StatelessWidget {
   Widget build(BuildContext context) {
     return MaterialApp(
       title: 'xchange',
-      theme: ThemeData(
-        primarySwatch: Colors.blue,
-        cardTheme: const CardThemeData(elevation: 0, margin: EdgeInsets.all(8)),
+      theme: ThemeData.dark().copyWith(
+        colorScheme: const ColorScheme.dark(primary: neonBlue, secondary: neonBlue),
+        primaryColor: neonBlue,
+        scaffoldBackgroundColor: Colors.black,
+        appBarTheme: const AppBarTheme(backgroundColor: Colors.black),
+        floatingActionButtonTheme: const FloatingActionButtonThemeData(
+          backgroundColor: neonBlue,
+        ),
+        cardTheme: const CardTheme(
+          elevation: 0,
+          margin: EdgeInsets.all(8),
+          color: Color(0xFF1A1A1A),
+        ),
       ),
       navigatorKey: navigatorKey,
       home: const HomeScreen(),
@@ -536,7 +549,7 @@ class TweetLikeAnnouncement extends StatelessWidget {
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             CircleAvatar(
-              backgroundColor: Colors.blue,
+              backgroundColor: neonBlue,
               child: Text(announcement.broadcasterName[0]),
             ),
             const SizedBox(width: 12),
