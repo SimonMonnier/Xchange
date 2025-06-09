@@ -1077,8 +1077,10 @@ class _CreateAnnouncementScreenState extends State<CreateAnnouncementScreen> {
         ),
         child: Padding(
           padding: const EdgeInsets.all(16.0),
-          child: Column(
-            children: [
+          child: SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
               TextField(
                 controller: _titleController,
                 focusNode: _titleFocusNode,
