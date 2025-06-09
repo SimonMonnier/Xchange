@@ -603,49 +603,47 @@ class TweetLikeAnnouncement extends StatelessWidget {
                   const SizedBox(height: 8),
                 ],
               ),
-            ),
-            if (isCreated)
-              IconButton(
-                icon: const Icon(Icons.delete),
-                onPressed: () {
-                  Provider.of<AnnouncementProvider>(
-                    context,
-                    listen: false,
-                  ).deleteCreatedAnnouncement(announcement.id);
-                },
-              ),
-            if (!isCreated)
               Row(
-                mainAxisSize: MainAxisSize.min,
+                mainAxisAlignment: MainAxisAlignment.end,
                 children: [
+                  if (!isCreated)
+                    IconButton(
+                      tooltip: 'Appeler',
+                      icon: const Icon(Icons.call),
+                      onPressed: () async {
+                        try {
+                          await Provider.of<AnnouncementProvider>(
+                            context,
+                            listen: false,
+                          ).initiateCall(
+                            announcement.broadcasterId,
+                            announcement.deviceAddress,
+                          );
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            const SnackBar(content: Text('Appel initié')),
+                          );
+                        } catch (e) {
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            SnackBar(content: Text('Erreur : $e')),
+                          );
+                        }
+                      },
+                    ),
                   IconButton(
-                    icon: const Icon(Icons.call),
-                    onPressed: () async {
-                      try {
-                        await Provider.of<AnnouncementProvider>(
-                          context,
-                          listen: false,
-                        ).initiateCall(
-                          announcement.broadcasterId,
-                          announcement.deviceAddress,
-                        );
-                        ScaffoldMessenger.of(context).showSnackBar(
-                          const SnackBar(content: Text('Appel initié')),
-                        );
-                      } catch (e) {
-                        ScaffoldMessenger.of(context).showSnackBar(
-                          SnackBar(content: Text('Erreur : $e')),
-                        );
-                      }
-                    },
-                  ),
-                  IconButton(
+                    tooltip: 'Supprimer',
                     icon: const Icon(Icons.delete),
                     onPressed: () {
-                      Provider.of<AnnouncementProvider>(
-                        context,
-                        listen: false,
-                      ).deleteReceivedAnnouncement(announcement.id);
+                      if (isCreated) {
+                        Provider.of<AnnouncementProvider>(
+                          context,
+                          listen: false,
+                        ).deleteCreatedAnnouncement(announcement.id);
+                      } else {
+                        Provider.of<AnnouncementProvider>(
+                          context,
+                          listen: false,
+                        ).deleteReceivedAnnouncement(announcement.id);
+                      }
                     },
                   ),
                 ],
