@@ -52,11 +52,10 @@ class AnnouncementProvider with ChangeNotifier {
   List<Announcement> _receivedAnnouncements = [];
   String deviceId = Uuid().v4();
   String deviceName = 'Utilisateur';
-  final FlutterP2pConnection p2p = FlutterP2pConnection();
-  List<Map<String, dynamic>> peers = [];
+  final FlutterP2pHost p2p = FlutterP2pHost();
+  List<P2pClientInfo> peers = [];
   RTCPeerConnection? _peerConnection;
   MediaStream? _localStream;
-  Timer? _discoveryTimer;
   bool _isInitialized = false;
   bool _isServerStarted = false;
   String? _downloadPath;
@@ -120,13 +119,13 @@ class AnnouncementProvider with ChangeNotifier {
           throw Exception('Échec de l\'initialisation de P2P');
         }
 
-        // Démarrer le serveur TCP
-        await p2p.startSocket(downloadPath: _downloadPath!);
+        // Créer le groupe Wi-Fi Direct
+        await p2p.createGroup();
         _isServerStarted = true;
-        print('Serveur TCP démarré');
+        print('Groupe P2P créé');
 
         // Écouter les messages reçus
-        p2p.receiveStringStream.listen((message) {
+        p2p.streamReceivedTexts().listen((message) {
           try {
             final data = jsonDecode(message);
             if (data['type'] == 'announcement') {
@@ -152,27 +151,11 @@ class AnnouncementProvider with ChangeNotifier {
           }
         });
 
-        // Découvrir les pairs
-        bool discoveryStarted = await p2p.discover();
-        if (!discoveryStarted) {
-          throw Exception('Échec du lancement de la découverte des pairs');
-        }
-        print('Découverte des pairs lancée');
-
-        // Scan régulier toutes les 30 secondes
-        _discoveryTimer = Timer.periodic(Duration(seconds: 30), (timer) async {
-          print('Relance de la découverte des pairs');
-          await p2p.discover();
-        });
-
-        // Écouter les pairs découverts
-        p2p.stream.listen((discoveredPeers) {
-          print(
-            'Peers discovered: ${discoveredPeers.map((p) => p['deviceName']).toList()}',
-          );
-          peers = discoveredPeers;
+        // Écouter les clients connectés
+        p2p.streamClientList().listen((clientList) {
+          peers = clientList.where((c) => !c.isHost).toList();
           notifyListeners();
-          // Rediffuser les annonces existantes aux nouveaux pairs
+          // Rediffuser les annonces existantes aux nouveaux clients
           for (var announcement in _createdAnnouncements) {
             _broadcastAnnouncement(announcement);
           }
@@ -237,15 +220,11 @@ class AnnouncementProvider with ChangeNotifier {
       print('P2P non initialisé ou serveur non démarré');
       return;
     }
-    for (var peer in peers) {
-      try {
-        await p2p.sendStringToSocket(jsonEncode(announcement.toJson()));
-        print(
-          'Annonce envoyée à ${peer['deviceName']} (${peer['macAddress']})',
-        );
-      } catch (e) {
-        print('Erreur lors de l\'envoi à ${peer['deviceName']}: $e');
-      }
+    try {
+      await p2p.broadcastText(jsonEncode(announcement.toJson()));
+      print('Annonce broadcastée');
+    } catch (e) {
+      print('Erreur lors de la diffusion : $e');
     }
   }
 
@@ -288,7 +267,7 @@ class AnnouncementProvider with ChangeNotifier {
 
     final offer = await _peerConnection!.createOffer();
     await _peerConnection!.setLocalDescription(offer);
-    await p2p.sendStringToSocket(
+    await p2p.broadcastText(
       jsonEncode({
         'type': 'offer',
         'sdp': offer.sdp,
@@ -299,7 +278,7 @@ class AnnouncementProvider with ChangeNotifier {
 
     _peerConnection!.onIceCandidate = (candidate) {
       if (candidate != null) {
-        p2p.sendStringToSocket(
+        p2p.broadcastText(
           jsonEncode({
             'type': 'ice',
             'candidate': candidate.candidate,
@@ -339,13 +318,13 @@ class AnnouncementProvider with ChangeNotifier {
 
     final answer = await _peerConnection!.createAnswer();
     await _peerConnection!.setLocalDescription(answer);
-    await p2p.sendStringToSocket(
+    await p2p.broadcastText(
       jsonEncode({'type': 'answer', 'sdp': answer.sdp, 'to': from}),
     );
 
     _peerConnection!.onIceCandidate = (candidate) {
       if (candidate != null) {
-        p2p.sendStringToSocket(
+        p2p.broadcastText(
           jsonEncode({
             'type': 'ice',
             'candidate': candidate.candidate,
@@ -360,10 +339,9 @@ class AnnouncementProvider with ChangeNotifier {
 
   @override
   void dispose() {
-    _discoveryTimer?.cancel();
     _localStream?.dispose();
     _peerConnection?.close();
-    p2p.stopSocket();
+    p2p.dispose();
     super.dispose();
   }
 }
@@ -625,7 +603,7 @@ class _CreateAnnouncementScreenState extends State<CreateAnnouncementScreen> {
                   broadcasterId: provider.deviceId,
                   broadcasterName: provider.deviceName,
                   deviceAddress: provider.peers.isNotEmpty
-                      ? provider.peers[0]['macAddress']
+                      ? provider.peers[0].id
                       : '',
                 );
                 provider.addCreatedAnnouncement(announcement);
