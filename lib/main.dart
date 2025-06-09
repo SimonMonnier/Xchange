@@ -467,7 +467,7 @@ class XchangeApp extends StatelessWidget {
           elevation: 8,
           hoverColor: accentGlow,
         ),
-        cardTheme: CardTheme(
+        cardTheme: CardThemeData(
           elevation: 4,
           margin: EdgeInsets.all(12),
           color: Color(0xFF1A1A2E),
